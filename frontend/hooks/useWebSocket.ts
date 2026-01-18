@@ -49,6 +49,22 @@ export function useWebSocket(sessionId: string | null) {
         } else if (data.sender_type === 'ai') {
           setAiTyping(data.is_typing)
         }
+      } else if (data.type === 'SYSTEM_SUGGESTION') {
+        // System suggestion for escalation
+        // Trigger UI update via custom event
+        window.dispatchEvent(new CustomEvent('escalation-suggestion', {
+          detail: {
+            message: data.message,
+            reason: data.reason
+          }
+        }))
+      } else if (data.type === 'ESCALATION_ACCEPTED') {
+        // User accepted escalation
+        window.dispatchEvent(new CustomEvent('escalation-accepted', {
+          detail: {
+            message: data.message
+          }
+        }))
       }
     }
 

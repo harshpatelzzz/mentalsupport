@@ -2,10 +2,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from uuid import UUID
+from datetime import datetime, timedelta
 
 from app.db.session import get_db
 from app.schemas.appointment import AppointmentCreate, AppointmentResponse, AppointmentUpdate
-from app.models.appointment import AppointmentStatus
+from app.schemas.escalation import AutoBookRequest, AutoBookResponse
+from app.models.appointment import AppointmentStatus, Appointment
+from app.models.chat_escalation import ChatEscalation
+from app.models.visitor import Visitor
 from app.services.appointment_service import appointment_service
 from app.core.logging import logger
 
@@ -130,3 +134,86 @@ def get_appointment_by_session(
     response.visitor_name = appointment.visitor.name if appointment.visitor else None
     
     return response
+
+
+@router.post("/auto-book", response_model=AutoBookResponse)
+def auto_book_appointment(
+    request: AutoBookRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Automatically book an appointment when chat escalation is triggered.
+    Finds next available slot and creates appointment linked to chat session.
+    """
+    try:
+        # Check if appointment already exists for this session
+        existing_appointment = db.query(Appointment)\
+            .filter(Appointment.session_id == request.session_id)\
+            .first()
+        
+        if existing_appointment:
+            logger.info(f"Appointment already exists for session {request.session_id}")
+            return AutoBookResponse(
+                appointment_id=existing_appointment.id,
+                session_id=existing_appointment.session_id,
+                start_time=existing_appointment.start_time,
+                end_time=existing_appointment.end_time or existing_appointment.start_time + timedelta(minutes=45),
+                message="Your appointment has been confirmed."
+            )
+        
+        # Find or create visitor
+        if request.visitor_id:
+            visitor = db.query(Visitor).filter(Visitor.id == request.visitor_id).first()
+            if not visitor:
+                visitor = Visitor(name=request.visitor_name)
+                db.add(visitor)
+                db.flush()
+        else:
+            visitor = Visitor(name=request.visitor_name or "Anonymous")
+            db.add(visitor)
+            db.flush()
+        
+        # Calculate next available slot (for demo: 2 hours from now)
+        start_time = datetime.utcnow() + timedelta(hours=2)
+        end_time = start_time + timedelta(minutes=45)
+        
+        # Create appointment
+        appointment = Appointment(
+            visitor_id=visitor.id,
+            session_id=request.session_id,
+            start_time=start_time,
+            end_time=end_time,
+            status=AppointmentStatus.SCHEDULED
+        )
+        
+        db.add(appointment)
+        db.commit()
+        db.refresh(appointment)
+        
+        # Update escalation record with appointment ID
+        escalation = db.query(ChatEscalation)\
+            .filter(ChatEscalation.session_id == request.session_id)\
+            .first()
+        
+        if escalation:
+            escalation.appointment_id = appointment.id
+            escalation.resolved_at = datetime.utcnow()
+            db.commit()
+        
+        logger.info(f"Auto-booked appointment {appointment.id} for session {request.session_id}")
+        
+        # Format confirmation message
+        time_str = start_time.strftime("%B %d at %I:%M %p UTC")
+        confirmation_message = f"✅ Your appointment has been booked.\n🕒 {time_str}\nA therapist will join you here at that time."
+        
+        return AutoBookResponse(
+            appointment_id=appointment.id,
+            session_id=appointment.session_id,
+            start_time=start_time,
+            end_time=end_time,
+            message=confirmation_message
+        )
+        
+    except Exception as e:
+        logger.error(f"Error auto-booking appointment: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

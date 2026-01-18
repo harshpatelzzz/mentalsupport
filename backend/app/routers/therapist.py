@@ -6,7 +6,9 @@ from uuid import UUID
 from app.db.session import get_db
 from app.schemas.therapist import TherapistNoteCreate, TherapistNoteResponse
 from app.schemas.analytics import EmotionTrend
+from app.schemas.escalation import EscalationResponse
 from app.models.therapist_note import TherapistNote
+from app.models.chat_escalation import ChatEscalation
 from app.services.analytics_service import analytics_service
 from app.core.logging import logger
 
@@ -100,3 +102,37 @@ def get_session_participants(
         "session_id": session_id,
         "participant_count": count
     }
+
+
+@router.get("/escalations", response_model=List[EscalationResponse])
+def get_all_escalations(
+    db: Session = Depends(get_db)
+):
+    """
+    Get all chat escalations for therapist visibility.
+    Shows which sessions needed professional intervention.
+    """
+    escalations = db.query(ChatEscalation)\
+        .order_by(ChatEscalation.triggered_at.desc())\
+        .limit(100)\
+        .all()
+    
+    return escalations
+
+
+@router.get("/escalations/session/{session_id}", response_model=EscalationResponse)
+def get_session_escalation(
+    session_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Get escalation details for a specific session.
+    """
+    escalation = db.query(ChatEscalation)\
+        .filter(ChatEscalation.session_id == UUID(session_id))\
+        .first()
+    
+    if not escalation:
+        raise HTTPException(status_code=404, detail="No escalation found for this session")
+    
+    return escalation

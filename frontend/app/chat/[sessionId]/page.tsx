@@ -6,13 +6,18 @@ import { useChatStore } from '@/store/chatStore'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { chatApi } from '@/services/api'
 import { getEmotionColor, formatTime } from '@/lib/utils'
-import { Send, Bot, User, Stethoscope, Circle } from 'lucide-react'
+import { Send, Bot, User, Stethoscope, Circle, AlertCircle, CheckCircle } from 'lucide-react'
+import axios from 'axios'
 
 export default function ChatPage() {
   const params = useParams()
   const sessionId = params.sessionId as string
   
   const [input, setInput] = useState('')
+  const [showEscalation, setShowEscalation] = useState(false)
+  const [escalationMessage, setEscalationMessage] = useState('')
+  const [isBooking, setIsBooking] = useState(false)
+  const [bookingConfirmed, setBookingConfirmed] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   
@@ -44,10 +49,52 @@ export default function ChatPage() {
     }
   }, [sessionId])
 
+  // Listen for escalation events
+  useEffect(() => {
+    const handleEscalationSuggestion = (event: any) => {
+      setEscalationMessage(event.detail.message)
+      setShowEscalation(true)
+    }
+
+    const handleEscalationAccepted = (event: any) => {
+      setShowEscalation(false)
+      setBookingConfirmed(true)
+    }
+
+    window.addEventListener('escalation-suggestion', handleEscalationSuggestion)
+    window.addEventListener('escalation-accepted', handleEscalationAccepted)
+
+    return () => {
+      window.removeEventListener('escalation-suggestion', handleEscalationSuggestion)
+      window.removeEventListener('escalation-accepted', handleEscalationAccepted)
+    }
+  }, [])
+
+  // Listen for escalation events
+  useEffect(() => {
+    const handleEscalationSuggestion = (event: any) => {
+      setEscalationMessage(event.detail.message)
+      setShowEscalation(true)
+    }
+
+    const handleEscalationAccepted = (event: any) => {
+      setShowEscalation(false)
+      setBookingConfirmed(true)
+    }
+
+    window.addEventListener('escalation-suggestion', handleEscalationSuggestion)
+    window.addEventListener('escalation-accepted', handleEscalationAccepted)
+
+    return () => {
+      window.removeEventListener('escalation-suggestion', handleEscalationSuggestion)
+      window.removeEventListener('escalation-accepted', handleEscalationAccepted)
+    }
+  }, [])
+
   // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, isAiTyping, isTherapistTyping])
+  }, [messages, isAiTyping, isTherapistTyping, showEscalation])
 
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault()
@@ -68,6 +115,42 @@ export default function ChatPage() {
     } else {
       sendTypingIndicator(false, 'visitor')
     }
+  }
+
+  const handleAcceptEscalation = async () => {
+    setIsBooking(true)
+    
+    try {
+      // Send acceptance message to trigger backend logic
+      sendMessage('yes', 'visitor', visitorId || undefined)
+      
+      // Call auto-book endpoint
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+      const response = await axios.post(`${apiUrl}/api/appointments/auto-book`, {
+        session_id: sessionId,
+        visitor_id: visitorId,
+        visitor_name: visitorName
+      })
+      
+      // Hide escalation UI
+      setShowEscalation(false)
+      setBookingConfirmed(true)
+      
+      // Show confirmation in chat (the backend will also send this)
+      console.log('Appointment booked:', response.data)
+      
+    } catch (error) {
+      console.error('Failed to book appointment:', error)
+      alert('Failed to book appointment. Please try again.')
+    } finally {
+      setIsBooking(false)
+    }
+  }
+
+  const handleDeclineEscalation = () => {
+    // Send decline message
+    sendMessage('not now', 'visitor', visitorId || undefined)
+    setShowEscalation(false)
   }
 
   const getSenderIcon = (senderType: string) => {
@@ -204,28 +287,81 @@ export default function ChatPage() {
 
       {/* Input Area */}
       <div className="bg-white border-t border-gray-200 px-4 py-4 shadow-lg">
-        <form onSubmit={handleSendMessage} className="container mx-auto max-w-4xl">
-          <div className="flex space-x-3">
-            <input
-              ref={inputRef}
-              type="text"
-              value={input}
-              onChange={handleInputChange}
-              placeholder="Type your message..."
-              className="input-field flex-1"
-              disabled={!isConnected}
-              maxLength={5000}
-            />
-            <button
-              type="submit"
-              disabled={!input.trim() || !isConnected}
-              className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
-            >
-              <Send className="w-5 h-5" />
-              <span className="hidden sm:inline">Send</span>
-            </button>
-          </div>
-        </form>
+        <div className="container mx-auto max-w-4xl">
+          {/* Escalation Prompt */}
+          {showEscalation && !bookingConfirmed && (
+            <div className="mb-4 bg-amber-50 border border-amber-200 rounded-lg p-4">
+              <div className="flex items-start space-x-3">
+                <AlertCircle className="w-6 h-6 text-amber-600 flex-shrink-0 mt-1" />
+                <div className="flex-1">
+                  <p className="text-gray-900 mb-3">{escalationMessage}</p>
+                  <div className="flex space-x-3">
+                    <button
+                      onClick={handleAcceptEscalation}
+                      disabled={isBooking}
+                      className="btn-primary flex items-center space-x-2 text-sm"
+                    >
+                      {isBooking ? (
+                        <>
+                          <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full"></div>
+                          <span>Booking...</span>
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle className="w-4 h-4" />
+                          <span>Yes, book appointment</span>
+                        </>
+                      )}
+                    </button>
+                    <button
+                      onClick={handleDeclineEscalation}
+                      disabled={isBooking}
+                      className="btn-outline text-sm"
+                    >
+                      Not now
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Booking Confirmed Message */}
+          {bookingConfirmed && (
+            <div className="mb-4 bg-green-50 border border-green-200 rounded-lg p-4">
+              <div className="flex items-center space-x-3">
+                <CheckCircle className="w-6 h-6 text-green-600" />
+                <p className="text-green-900 font-medium">
+                  Your appointment has been booked! A therapist will join this chat at the scheduled time.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Regular Input Form */}
+          <form onSubmit={handleSendMessage}>
+            <div className="flex space-x-3">
+              <input
+                ref={inputRef}
+                type="text"
+                value={input}
+                onChange={handleInputChange}
+                placeholder={showEscalation ? "Please respond to the suggestion above..." : "Type your message..."}
+                className="input-field flex-1"
+                disabled={!isConnected || isBooking}
+                maxLength={5000}
+              />
+              <button
+                type="submit"
+                disabled={!input.trim() || !isConnected || isBooking}
+                className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+              >
+                <Send className="w-5 h-5" />
+                <span className="hidden sm:inline">Send</span>
+              </button>
+            </div>
+          </form>
+        </div>
       </div>
     </div>
   )
