@@ -28,6 +28,7 @@ export function useWebSocket(sessionId: string | null) {
 
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data)
+      console.log('📥 WebSocket message received:', data.type, data)
 
       if (data.type === 'message') {
         // New message received
@@ -51,6 +52,9 @@ export function useWebSocket(sessionId: string | null) {
         }
       } else if (data.type === 'SYSTEM_SUGGESTION') {
         // System suggestion for escalation
+        console.log('🚨 SYSTEM_SUGGESTION received:', data.message)
+        console.log('🚨 Reason:', data.reason)
+        
         // Trigger UI update via custom event
         window.dispatchEvent(new CustomEvent('escalation-suggestion', {
           detail: {
@@ -58,13 +62,17 @@ export function useWebSocket(sessionId: string | null) {
             reason: data.reason
           }
         }))
+        console.log('✅ Dispatched escalation-suggestion event')
       } else if (data.type === 'ESCALATION_ACCEPTED') {
         // User accepted escalation
+        console.log('✅ ESCALATION_ACCEPTED received')
         window.dispatchEvent(new CustomEvent('escalation-accepted', {
           detail: {
             message: data.message
           }
         }))
+      } else {
+        console.warn('⚠️ Unknown message type:', data.type)
       }
     }
 

@@ -16,13 +16,42 @@ class ChatHealthService:
     LOW_CONFIDENCE_THRESHOLD = 0.55
     
     # Keywords that indicate user wants human therapist
-    INTENT_KEYWORDS = ["therapist", "human", "real person", "appointment", "book", "someone", 
-                       "professional", "doctor", "counselor", "help me please"]
+    INTENT_KEYWORDS = [
+        "therapist", "human", "real person", "appointment", "book", "someone", 
+        "professional", "doctor", "counselor", "help me please", "talk to someone",
+        "speak to someone", "need help", "schedule", "meet with"
+    ]
+    
+    @staticmethod
+    def has_direct_escalation_intent(text: str) -> bool:
+        """
+        STRICT check if user message explicitly requests therapist/appointment.
+        This function is called IMMEDIATELY after user message is received.
+        
+        Args:
+            text: The user's message text
+            
+        Returns:
+            True if user is asking for therapist/appointment (triggers IMMEDIATE escalation)
+        """
+        if not text or len(text.strip()) == 0:
+            return False
+        
+        content_lower = text.lower().strip()
+        
+        # Check each keyword
+        for keyword in ChatHealthService.INTENT_KEYWORDS:
+            if keyword in content_lower:
+                logger.warning(f"🚨 DIRECT ESCALATION INTENT DETECTED: keyword '{keyword}' in message")
+                logger.warning(f"Message: '{text[:100]}'")
+                return True
+        
+        return False
     
     @staticmethod
     def check_user_intent(message_content: str) -> bool:
         """
-        Check if user message explicitly requests therapist/appointment.
+        Alias for has_direct_escalation_intent for backwards compatibility.
         
         Args:
             message_content: The user's message text
@@ -30,12 +59,7 @@ class ChatHealthService:
         Returns:
             True if user is asking for therapist/appointment
         """
-        content_lower = message_content.lower()
-        for keyword in ChatHealthService.INTENT_KEYWORDS:
-            if keyword in content_lower:
-                logger.warning(f"User intent detected: keyword '{keyword}' found in message")
-                return True
-        return False
+        return ChatHealthService.has_direct_escalation_intent(message_content)
     
     @staticmethod
     def detect_ai_repetition(messages: List[ChatMessage]) -> bool:

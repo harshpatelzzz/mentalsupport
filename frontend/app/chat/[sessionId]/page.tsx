@@ -51,41 +51,28 @@ export default function ChatPage() {
 
   // Listen for escalation events
   useEffect(() => {
+    console.log('🎧 Setting up escalation event listeners')
+    
     const handleEscalationSuggestion = (event: any) => {
+      console.log('🚨 escalation-suggestion event received!', event.detail)
       setEscalationMessage(event.detail.message)
       setShowEscalation(true)
+      console.log('✅ Escalation UI state updated - should show amber alert')
     }
 
     const handleEscalationAccepted = (event: any) => {
+      console.log('✅ escalation-accepted event received!')
       setShowEscalation(false)
       setBookingConfirmed(true)
     }
 
     window.addEventListener('escalation-suggestion', handleEscalationSuggestion)
     window.addEventListener('escalation-accepted', handleEscalationAccepted)
+    
+    console.log('✅ Event listeners attached')
 
     return () => {
-      window.removeEventListener('escalation-suggestion', handleEscalationSuggestion)
-      window.removeEventListener('escalation-accepted', handleEscalationAccepted)
-    }
-  }, [])
-
-  // Listen for escalation events
-  useEffect(() => {
-    const handleEscalationSuggestion = (event: any) => {
-      setEscalationMessage(event.detail.message)
-      setShowEscalation(true)
-    }
-
-    const handleEscalationAccepted = (event: any) => {
-      setShowEscalation(false)
-      setBookingConfirmed(true)
-    }
-
-    window.addEventListener('escalation-suggestion', handleEscalationSuggestion)
-    window.addEventListener('escalation-accepted', handleEscalationAccepted)
-
-    return () => {
+      console.log('🧹 Cleaning up escalation event listeners')
       window.removeEventListener('escalation-suggestion', handleEscalationSuggestion)
       window.removeEventListener('escalation-accepted', handleEscalationAccepted)
     }
