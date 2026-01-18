@@ -186,16 +186,21 @@ async def websocket_endpoint(
                 # STEP 3: IMMEDIATE INTENT CHECK (if no escalation exists yet)
                 # ============================================
                 if not any_existing_escalation:
-                    logger.info(f"🔍 No existing escalation for session {session_id}")
-                    logger.info(f"🔍 Checking message for escalation intent: '{message_create.content}'")
+                    logger.warning(f"=" * 80)
+                    logger.warning(f"🔍 CHECKING FOR ESCALATION INTENT")
+                    logger.warning(f"Session: {session_id}")
+                    logger.warning(f"Message: '{message_create.content}'")
+                    logger.warning(f"=" * 80)
                     
                     # 🚨 CRITICAL: Check for direct escalation intent FIRST
                     intent_detected = chat_health_service.has_direct_escalation_intent(message_create.content)
-                    logger.info(f"🔍 Intent check result: {intent_detected}")
                     
                     if intent_detected:
-                        logger.warning(f"🚨🚨🚨 DIRECT ESCALATION INTENT DETECTED in session {session_id}")
-                        logger.warning(f"🚨 User message: '{message_create.content}'")
+                        logger.warning(f"🚨" * 30)
+                        logger.warning(f"🚨 ESCALATION INTENT DETECTED - STOPPING AI RESPONSE 🚨")
+                        logger.warning(f"🚨 Session: {session_id}")
+                        logger.warning(f"🚨 Message: '{message_create.content}'")
+                        logger.warning(f"🚨" * 30)
                         
                         # Create escalation record
                         new_escalation = ChatEscalation(
@@ -205,7 +210,8 @@ async def websocket_endpoint(
                         )
                         db.add(new_escalation)
                         db.commit()
-                        logger.warning(f"✅ Created escalation record ID: {new_escalation.id}")
+                        db.refresh(new_escalation)
+                        logger.warning(f"✅ Escalation record created: ID={new_escalation.id}")
                         
                         # Send SYSTEM_SUGGESTION immediately
                         system_message = {
@@ -214,15 +220,16 @@ async def websocket_endpoint(
                             "message": "I understand you'd like to speak with a therapist. Would you like me to book an appointment for you right away?",
                             "reason": "user_request"
                         }
-                        logger.warning(f"📤 Sending SYSTEM_SUGGESTION to session {session_id}")
+                        logger.warning(f"📤 Broadcasting SYSTEM_SUGGESTION to all connections in session {session_id}")
                         await manager.broadcast_to_session(system_message, session_id)
-                        logger.warning(f"✅ SYSTEM_SUGGESTION sent successfully")
+                        logger.warning(f"✅ SYSTEM_SUGGESTION broadcast complete")
                         
-                        # 🛑 STOP HERE - Do NOT generate AI response
-                        logger.warning(f"🛑 SKIPPING AI RESPONSE - Escalation triggered")
-                        continue
-                    else:
-                        logger.info(f"✅ No escalation intent detected in message")
+                        # 🛑 CRITICAL: STOP EXECUTION - Do NOT continue to AI response
+                        logger.warning(f"🛑 RETURNING NOW - NO AI RESPONSE WILL BE GENERATED 🛑")
+                        logger.warning(f"=" * 80)
+                        continue  # THIS SKIPS THE AI RESPONSE GENERATION BELOW
+                    
+                    logger.info(f"✅ No direct intent detected, checking chat health...")
                     
                     # Check for chat health issues (AI looping, emotions, etc.)
                     logger.info(f"No direct intent detected, checking chat health...")
@@ -257,13 +264,18 @@ async def websocket_endpoint(
                 # STEP 4: Generate normal AI response
                 # ============================================
                 # Only reach here if no escalation was triggered
-                logger.info(f"💬 Generating normal AI response for session {session_id}")
+                logger.info(f"=" * 80)
+                logger.info(f"💬 GENERATING NORMAL AI RESPONSE")
+                logger.info(f"Session: {session_id}")
+                logger.info(f"User message: '{message_create.content[:50]}...'")
+                logger.info(f"=" * 80)
                 
                 # Send typing indicator
                 await manager.send_typing_indicator(session_id, "ai", True)
                 
                 # Generate AI response
                 ai_response_content = chat_service.get_ai_response(message_create.content)
+                logger.info(f"AI response generated: '{ai_response_content[:50]}...'")
                 
                 # Stop typing indicator
                 await manager.send_typing_indicator(session_id, "ai", False)

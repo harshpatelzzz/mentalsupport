@@ -16,10 +16,28 @@ class ChatHealthService:
     LOW_CONFIDENCE_THRESHOLD = 0.55
     
     # Keywords that indicate user wants human therapist
+    # ANY of these words in a message will trigger IMMEDIATE escalation
     INTENT_KEYWORDS = [
-        "therapist", "human", "real person", "appointment", "book", "someone", 
-        "professional", "doctor", "counselor", "help me please", "talk to someone",
-        "speak to someone", "need help", "schedule", "meet with"
+        "therapist", 
+        "human", 
+        "real person", 
+        "appointment", 
+        "book", 
+        "someone", 
+        "professional", 
+        "doctor", 
+        "counselor", 
+        "help me please", 
+        "talk to someone",
+        "speak to someone", 
+        "need help", 
+        "schedule", 
+        "meet with",
+        "need a therapist",
+        "need therapist",
+        "want therapist",
+        "see a therapist",
+        "talk to therapist"
     ]
     
     @staticmethod
@@ -28,6 +46,8 @@ class ChatHealthService:
         STRICT check if user message explicitly requests therapist/appointment.
         This function is called IMMEDIATELY after user message is received.
         
+        ANY keyword match will return True and trigger immediate escalation.
+        
         Args:
             text: The user's message text
             
@@ -35,17 +55,23 @@ class ChatHealthService:
             True if user is asking for therapist/appointment (triggers IMMEDIATE escalation)
         """
         if not text or len(text.strip()) == 0:
+            logger.info("Empty message - no intent")
             return False
         
         content_lower = text.lower().strip()
+        logger.info(f"Checking intent for: '{content_lower}'")
         
         # Check each keyword
         for keyword in ChatHealthService.INTENT_KEYWORDS:
             if keyword in content_lower:
-                logger.warning(f"🚨 DIRECT ESCALATION INTENT DETECTED: keyword '{keyword}' in message")
-                logger.warning(f"Message: '{text[:100]}'")
+                logger.warning(f"=" * 80)
+                logger.warning(f"🚨🚨🚨 KEYWORD MATCH FOUND 🚨🚨🚨")
+                logger.warning(f"Keyword: '{keyword}'")
+                logger.warning(f"User message: '{text}'")
+                logger.warning(f"=" * 80)
                 return True
         
+        logger.info(f"No keywords found in message")
         return False
     
     @staticmethod
