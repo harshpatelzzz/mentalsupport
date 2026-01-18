@@ -118,11 +118,16 @@ export default function ChatPage() {
   }
 
   const handleAcceptEscalation = async () => {
+    if (isBooking) return // Prevent double-click
+    
     setIsBooking(true)
     
     try {
       // Send acceptance message to trigger backend logic
       sendMessage('yes', 'visitor', visitorId || undefined)
+      
+      // Small delay to let backend process
+      await new Promise(resolve => setTimeout(resolve, 500))
       
       // Call auto-book endpoint
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
@@ -132,16 +137,23 @@ export default function ChatPage() {
         visitor_name: visitorName
       })
       
-      // Hide escalation UI
+      // Hide escalation UI and show confirmation
       setShowEscalation(false)
       setBookingConfirmed(true)
       
-      // Show confirmation in chat (the backend will also send this)
+      // Display appointment details as a chat message
+      const confirmationMsg = response.data.message || 'Your appointment has been booked successfully!'
       console.log('Appointment booked:', response.data)
+      
+      // Confirmation will stay visible for user to see
+      setTimeout(() => {
+        setBookingConfirmed(false)
+      }, 10000) // Hide after 10 seconds
       
     } catch (error) {
       console.error('Failed to book appointment:', error)
       alert('Failed to book appointment. Please try again.')
+      setShowEscalation(true) // Show escalation UI again on error
     } finally {
       setIsBooking(false)
     }
@@ -151,6 +163,7 @@ export default function ChatPage() {
     // Send decline message
     sendMessage('not now', 'visitor', visitorId || undefined)
     setShowEscalation(false)
+    // Allow chat to continue normally
   }
 
   const getSenderIcon = (senderType: string) => {
@@ -339,28 +352,37 @@ export default function ChatPage() {
           )}
 
           {/* Regular Input Form */}
-          <form onSubmit={handleSendMessage}>
-            <div className="flex space-x-3">
-              <input
-                ref={inputRef}
-                type="text"
-                value={input}
-                onChange={handleInputChange}
-                placeholder={showEscalation ? "Please respond to the suggestion above..." : "Type your message..."}
-                className="input-field flex-1"
-                disabled={!isConnected || isBooking}
-                maxLength={5000}
-              />
-              <button
-                type="submit"
-                disabled={!input.trim() || !isConnected || isBooking}
-                className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
-              >
-                <Send className="w-5 h-5" />
-                <span className="hidden sm:inline">Send</span>
-              </button>
+          {!showEscalation && (
+            <form onSubmit={handleSendMessage}>
+              <div className="flex space-x-3">
+                <input
+                  ref={inputRef}
+                  type="text"
+                  value={input}
+                  onChange={handleInputChange}
+                  placeholder="Type your message..."
+                  className="input-field flex-1"
+                  disabled={!isConnected || isBooking || bookingConfirmed}
+                  maxLength={5000}
+                />
+                <button
+                  type="submit"
+                  disabled={!input.trim() || !isConnected || isBooking || bookingConfirmed}
+                  className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+                >
+                  <Send className="w-5 h-5" />
+                  <span className="hidden sm:inline">Send</span>
+                </button>
+              </div>
+            </form>
+          )}
+          
+          {/* Placeholder when escalation is showing */}
+          {showEscalation && (
+            <div className="text-center text-gray-500 py-3">
+              Please respond to the suggestion above
             </div>
-          </form>
+          )}
         </div>
       </div>
     </div>

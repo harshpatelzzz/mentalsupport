@@ -15,10 +15,66 @@ class ChatHealthService:
     # AI confidence threshold below which we consider the bot ineffective
     LOW_CONFIDENCE_THRESHOLD = 0.55
     
+    # Keywords that indicate user wants human therapist
+    INTENT_KEYWORDS = ["therapist", "human", "real person", "appointment", "book", "someone", 
+                       "professional", "doctor", "counselor", "help me please"]
+    
+    @staticmethod
+    def check_user_intent(message_content: str) -> bool:
+        """
+        Check if user message explicitly requests therapist/appointment.
+        
+        Args:
+            message_content: The user's message text
+            
+        Returns:
+            True if user is asking for therapist/appointment
+        """
+        content_lower = message_content.lower()
+        for keyword in ChatHealthService.INTENT_KEYWORDS:
+            if keyword in content_lower:
+                logger.warning(f"User intent detected: keyword '{keyword}' found in message")
+                return True
+        return False
+    
+    @staticmethod
+    def detect_ai_repetition(messages: List[ChatMessage]) -> bool:
+        """
+        Detect if AI is repeating the same response (looping).
+        
+        Args:
+            messages: List of recent chat messages
+            
+        Returns:
+            True if AI is repeating responses
+        """
+        if not messages or len(messages) < 3:
+            return False
+        
+        # Get AI messages from recent history
+        ai_messages = [msg for msg in messages[-10:] if msg.sender_type == SenderType.AI]
+        
+        if len(ai_messages) < 3:
+            return False
+        
+        # Check if any response appears 3+ times
+        response_counts = {}
+        for msg in ai_messages:
+            # Normalize content (strip, lowercase, first 100 chars for comparison)
+            normalized = msg.content.strip().lower()[:100]
+            response_counts[normalized] = response_counts.get(normalized, 0) + 1
+            
+            if response_counts[normalized] >= 3:
+                logger.warning(f"AI repetition detected: same response appeared {response_counts[normalized]} times")
+                return True
+        
+        return False
+    
     @staticmethod
     def evaluate_chat_health(messages: List[ChatMessage]) -> Dict:
         """
         Evaluate if a chat session is struggling and needs therapist intervention.
+        Uses OR logic: triggers if ANY condition is met.
         
         Args:
             messages: List of recent chat messages (should be last 5-10)
@@ -26,11 +82,18 @@ class ChatHealthService:
         Returns:
             Dictionary with 'struggling' boolean and 'reason' string
         """
-        if not messages or len(messages) < 3:
+        if not messages or len(messages) < 2:
             # Not enough data to evaluate
             return {
                 "struggling": False,
                 "reason": None
+            }
+        
+        # Check for AI repetition/looping FIRST
+        if ChatHealthService.detect_ai_repetition(messages):
+            return {
+                "struggling": True,
+                "reason": "ai_repetition"
             }
         
         # Look at last 5 messages for evaluation
@@ -55,7 +118,7 @@ class ChatHealthService:
                     low_confidence_ai_count += 1
                     logger.info(f"Detected low AI confidence: {message.confidence}")
         
-        # Evaluate if struggling based on criteria
+        # Evaluate if struggling based on ANY criteria (OR logic)
         emotional_distress = negative_emotion_count >= 3
         low_ai_effectiveness = low_confidence_ai_count >= 2
         

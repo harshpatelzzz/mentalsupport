@@ -2,6 +2,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPExce
 from sqlalchemy.orm import Session
 from typing import List
 from uuid import UUID, uuid4
+from datetime import datetime
 import json
 import re
 
@@ -142,10 +143,12 @@ async def websocket_endpoint(
             
             # Generate AI response if message is from visitor
             if message_create.sender_type == SenderType.VISITOR:
-                # Check if user is responding to escalation suggestion
+                # ============================================
+                # PRIORITY 1: Check if user is responding to escalation suggestion
+                # ============================================
                 user_content_lower = message_create.content.lower().strip()
-                escalation_keywords = ["yes", "okay", "ok", "sure", "book", "please", "help"]
-                decline_keywords = ["no", "not now", "later", "maybe later"]
+                escalation_keywords = ["yes", "okay", "ok", "sure", "book", "please"]
+                decline_keywords = ["no", "not now", "later", "maybe later", "decline"]
                 
                 # Check if there's a pending escalation for this session
                 existing_escalation = db.query(ChatEscalation)\
@@ -174,9 +177,74 @@ async def websocket_endpoint(
                     # User declined
                     logger.info(f"User declined escalation suggestion for session {session_id}")
                     existing_escalation.user_accepted = "declined"
+                    existing_escalation.resolved_at = datetime.utcnow()
                     db.commit()
                     
-                    # Continue with normal AI response
+                    # Continue with normal AI response below
+                
+                # ============================================
+                # PRIORITY 2: Check for IMMEDIATE escalation triggers
+                # ============================================
+                # Check if ANY escalation has already been triggered for this session
+                any_escalation = db.query(ChatEscalation)\
+                    .filter(ChatEscalation.session_id == UUID(session_id))\
+                    .first()
+                
+                if not any_escalation:
+                    # Check 1: User explicitly requesting therapist/appointment
+                    if chat_health_service.check_user_intent(message_create.content):
+                        logger.warning(f"User intent for therapist detected in session {session_id}")
+                        
+                        # Create escalation record
+                        escalation = ChatEscalation(
+                            session_id=UUID(session_id),
+                            reason="user_request",
+                            user_accepted="pending"
+                        )
+                        db.add(escalation)
+                        db.commit()
+                        
+                        # Send system suggestion IMMEDIATELY - no AI response
+                        system_message = {
+                            "type": "SYSTEM_SUGGESTION",
+                            "session_id": session_id,
+                            "message": "I understand you'd like to speak with a therapist. Would you like me to book an appointment for you right away?",
+                            "reason": "user_request"
+                        }
+                        await manager.broadcast_to_session(system_message, session_id)
+                        continue  # SKIP AI response generation
+                    
+                    # Check 2: Chat health evaluation
+                    recent_messages = chat_service.get_chat_history(db, UUID(session_id), limit=10)
+                    
+                    if chat_health_service.should_trigger_escalation(recent_messages, False):
+                        health_result = chat_health_service.evaluate_chat_health(recent_messages)
+                        
+                        logger.warning(f"Chat health issue detected in session {session_id}: {health_result['reason']}")
+                        
+                        # Create escalation record
+                        escalation = ChatEscalation(
+                            session_id=UUID(session_id),
+                            reason=health_result["reason"],
+                            user_accepted="pending"
+                        )
+                        db.add(escalation)
+                        db.commit()
+                        
+                        # Send system suggestion IMMEDIATELY - no AI response
+                        system_message = {
+                            "type": "SYSTEM_SUGGESTION",
+                            "session_id": session_id,
+                            "message": "I want to make sure you get the best support. It might help to talk with a professional therapist. Would you like me to book an appointment for you?",
+                            "reason": health_result["reason"]
+                        }
+                        await manager.broadcast_to_session(system_message, session_id)
+                        continue  # SKIP AI response generation
+                
+                # ============================================
+                # PRIORITY 3: Generate normal AI response
+                # ============================================
+                # Only reach here if no escalation was triggered
                 
                 # Send typing indicator
                 await manager.send_typing_indicator(session_id, "ai", True)
@@ -210,43 +278,6 @@ async def websocket_endpoint(
                 }
                 
                 await manager.broadcast_to_session(ai_message_response, session_id)
-                
-                # ============================================
-                # CHAT HEALTH CHECK & ESCALATION LOGIC
-                # ============================================
-                # Check if we should suggest therapist escalation
-                existing_escalation_check = db.query(ChatEscalation)\
-                    .filter(ChatEscalation.session_id == UUID(session_id))\
-                    .first()
-                
-                if not existing_escalation_check:
-                    # Get recent messages for health check
-                    recent_messages = chat_service.get_chat_history(db, UUID(session_id), limit=10)
-                    
-                    # Evaluate chat health
-                    if chat_health_service.should_trigger_escalation(recent_messages, False):
-                        health_result = chat_health_service.evaluate_chat_health(recent_messages)
-                        
-                        logger.warning(f"Triggering escalation for session {session_id}: {health_result['reason']}")
-                        
-                        # Create escalation record
-                        escalation = ChatEscalation(
-                            session_id=UUID(session_id),
-                            reason=health_result["reason"],
-                            user_accepted="pending"
-                        )
-                        db.add(escalation)
-                        db.commit()
-                        
-                        # Send system suggestion message
-                        system_message = {
-                            "type": "SYSTEM_SUGGESTION",
-                            "session_id": session_id,
-                            "message": "I want to make sure you get the best support. It might help to talk with a professional therapist. Would you like me to book an appointment for you?",
-                            "reason": health_result["reason"]
-                        }
-                        
-                        await manager.broadcast_to_session(system_message, session_id)
     
     except WebSocketDisconnect:
         manager.disconnect(websocket, session_id)
