@@ -1,0 +1,172 @@
+from typing import List, Optional
+from uuid import UUID
+from sqlalchemy.orm import Session
+from sqlalchemy import desc
+from datetime import datetime
+
+from app.models.chat import ChatMessage, SenderType
+from app.models.visitor import Visitor
+from app.models.emotion import EmotionData
+from app.schemas.chat import ChatMessageCreate, ChatMessageResponse
+from app.services.emotion_service import emotion_analyzer
+from app.core.logging import logger
+
+
+class ChatService:
+    """
+    Service layer for chat-related operations.
+    Handles message persistence, emotion analysis, and chat history.
+    """
+    
+    @staticmethod
+    def create_message(
+        db: Session,
+        message_data: ChatMessageCreate
+    ) -> ChatMessage:
+        """
+        Create a new chat message with emotion analysis.
+        
+        Args:
+            db: Database session
+            message_data: Message creation data
+            
+        Returns:
+            Created ChatMessage instance
+        """
+        # Analyze emotion if message is from visitor
+        emotion = None
+        confidence = None
+        
+        if message_data.sender_type == SenderType.VISITOR:
+            try:
+                emotion, confidence = emotion_analyzer.analyze(message_data.content)
+                logger.info(f"Emotion detected: {emotion} (confidence: {confidence:.2f})")
+            except Exception as e:
+                logger.error(f"Emotion analysis failed: {e}")
+        
+        # Create chat message
+        chat_message = ChatMessage(
+            session_id=message_data.session_id,
+            visitor_id=message_data.visitor_id,
+            sender_type=message_data.sender_type,
+            content=message_data.content,
+            emotion=emotion,
+            confidence=confidence
+        )
+        
+        db.add(chat_message)
+        db.commit()
+        db.refresh(chat_message)
+        
+        # Store emotion data separately for analytics
+        if emotion and confidence:
+            emotion_data = EmotionData(
+                session_id=message_data.session_id,
+                message_id=chat_message.id,
+                emotion=emotion,
+                confidence=confidence,
+                message_content=message_data.content[:500]  # Store truncated content
+            )
+            db.add(emotion_data)
+            db.commit()
+        
+        return chat_message
+    
+    @staticmethod
+    def get_chat_history(
+        db: Session,
+        session_id: UUID,
+        limit: int = 100
+    ) -> List[ChatMessage]:
+        """
+        Retrieve chat history for a session.
+        
+        Args:
+            db: Database session
+            session_id: Chat session UUID
+            limit: Maximum number of messages to retrieve
+            
+        Returns:
+            List of ChatMessage instances
+        """
+        messages = db.query(ChatMessage)\
+            .filter(ChatMessage.session_id == session_id)\
+            .order_by(ChatMessage.created_at)\
+            .limit(limit)\
+            .all()
+        
+        return messages
+    
+    @staticmethod
+    def get_ai_response(message_content: str) -> str:
+        """
+        Generate AI chatbot response.
+        Simple rule-based responses for demonstration.
+        
+        Args:
+            message_content: User's message
+            
+        Returns:
+            AI response text
+        """
+        content_lower = message_content.lower()
+        
+        # Simple response logic
+        if any(word in content_lower for word in ["hello", "hi", "hey"]):
+            return "Hello! I'm here to listen and support you. How are you feeling today?"
+        
+        elif any(word in content_lower for word in ["sad", "depressed", "down"]):
+            return "I'm sorry you're feeling this way. It's okay to feel sad sometimes. Would you like to talk about what's troubling you?"
+        
+        elif any(word in content_lower for word in ["anxious", "worried", "nervous"]):
+            return "I understand anxiety can be overwhelming. Let's take this one step at a time. What's causing you the most worry right now?"
+        
+        elif any(word in content_lower for word in ["angry", "mad", "frustrated"]):
+            return "It sounds like you're experiencing some intense feelings. Anger is a valid emotion. What's been happening that's made you feel this way?"
+        
+        elif any(word in content_lower for word in ["thank", "thanks"]):
+            return "You're welcome. I'm here for you whenever you need support."
+        
+        elif any(word in content_lower for word in ["bye", "goodbye"]):
+            return "Take care of yourself. Remember, support is always available when you need it."
+        
+        else:
+            return "I hear you. Can you tell me more about how you're feeling?"
+    
+    @staticmethod
+    def get_session_stats(db: Session, session_id: UUID) -> dict:
+        """
+        Get statistics for a chat session.
+        
+        Args:
+            db: Database session
+            session_id: Chat session UUID
+            
+        Returns:
+            Dictionary with session statistics
+        """
+        messages = db.query(ChatMessage)\
+            .filter(ChatMessage.session_id == session_id)\
+            .all()
+        
+        if not messages:
+            return {
+                "message_count": 0,
+                "start_time": None,
+                "latest_time": None,
+                "duration_minutes": 0
+            }
+        
+        start_time = messages[0].created_at
+        latest_time = messages[-1].created_at
+        duration = (latest_time - start_time).total_seconds() / 60
+        
+        return {
+            "message_count": len(messages),
+            "start_time": start_time,
+            "latest_time": latest_time,
+            "duration_minutes": round(duration, 2)
+        }
+
+
+chat_service = ChatService()

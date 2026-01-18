@@ -1,0 +1,179 @@
+NeuroSupport - Complete Project Structure
+==========================================
+
+z:/dbms projectt/
+│
+├── 📄 README.md                      # Main documentation
+├── 📄 SETUP.md                       # Detailed setup guide
+├── 📄 ARCHITECTURE.md                # System architecture
+├── 📄 PROJECT_SUMMARY.md             # Project overview
+├── 📄 QUICK_REFERENCE.md             # Command reference
+├── 📄 PROJECT_STRUCTURE.txt          # This file
+│
+├── 🐳 docker-compose.yml             # Service orchestration
+├── 📄 .dockerignore                  # Docker ignore rules
+├── 📄 .gitignore                     # Git ignore rules
+├── 🚀 start.sh                       # Linux/Mac startup script
+├── 🚀 start.bat                      # Windows startup script
+│
+├── 📁 backend/                       # FastAPI Backend
+│   ├── 📄 requirements.txt           # Python dependencies
+│   ├── 📄 Dockerfile                 # Backend container config
+│   ├── 📄 alembic.ini                # Alembic configuration
+│   │
+│   ├── 📁 app/                       # Application code
+│   │   ├── 📄 __init__.py
+│   │   ├── 📄 main.py                # FastAPI app entry point
+│   │   │
+│   │   ├── 📁 core/                  # Core utilities
+│   │   │   ├── 📄 __init__.py
+│   │   │   ├── 📄 config.py          # Settings management
+│   │   │   └── 📄 logging.py         # Logging setup
+│   │   │
+│   │   ├── 📁 db/                    # Database setup
+│   │   │   ├── 📄 __init__.py
+│   │   │   ├── 📄 base.py            # SQLAlchemy base
+│   │   │   ├── 📄 session.py         # DB session management
+│   │   │   └── 📄 init_db.py         # Database initialization
+│   │   │
+│   │   ├── 📁 models/                # SQLAlchemy models
+│   │   │   ├── 📄 __init__.py
+│   │   │   ├── 📄 visitor.py         # Visitor model
+│   │   │   ├── 📄 appointment.py     # Appointment model
+│   │   │   ├── 📄 chat.py            # ChatMessage model
+│   │   │   ├── 📄 emotion.py         # EmotionData model
+│   │   │   └── 📄 therapist_note.py  # TherapistNote model
+│   │   │
+│   │   ├── 📁 schemas/               # Pydantic schemas
+│   │   │   ├── 📄 __init__.py
+│   │   │   ├── 📄 visitor.py         # Visitor schemas
+│   │   │   ├── 📄 appointment.py     # Appointment schemas
+│   │   │   ├── 📄 chat.py            # Chat schemas
+│   │   │   ├── 📄 therapist.py       # Therapist schemas
+│   │   │   └── 📄 analytics.py       # Analytics schemas
+│   │   │
+│   │   ├── 📁 services/              # Business logic
+│   │   │   ├── 📄 __init__.py
+│   │   │   ├── 📄 emotion_service.py # Emotion analysis
+│   │   │   ├── 📄 chat_service.py    # Chat operations
+│   │   │   ├── 📄 appointment_service.py
+│   │   │   └── 📄 analytics_service.py
+│   │   │
+│   │   ├── 📁 routers/               # API endpoints
+│   │   │   ├── 📄 __init__.py
+│   │   │   ├── 📄 chat.py            # Chat endpoints
+│   │   │   ├── 📄 appointments.py    # Appointment endpoints
+│   │   │   ├── 📄 therapist.py       # Therapist endpoints
+│   │   │   └── 📄 analytics.py       # Analytics endpoints
+│   │   │
+│   │   └── 📁 websocket/             # WebSocket handling
+│   │       ├── 📄 __init__.py
+│   │       └── 📄 connection_manager.py
+│   │
+│   └── 📁 alembic/                   # Database migrations
+│       ├── 📄 env.py                 # Alembic environment
+│       ├── 📄 script.py.mako         # Migration template
+│       └── 📁 versions/              # Migration files
+│           └── 📄 .gitkeep
+│
+└── 📁 frontend/                      # Next.js Frontend
+    ├── 📄 package.json               # Node dependencies
+    ├── 📄 package-lock.json          # Lock file
+    ├── 📄 tsconfig.json              # TypeScript config
+    ├── 📄 tailwind.config.ts         # Tailwind CSS config
+    ├── 📄 postcss.config.js          # PostCSS config
+    ├── 📄 next.config.js             # Next.js config
+    ├── 📄 Dockerfile                 # Frontend container config
+    │
+    ├── 📁 app/                       # Next.js App Router
+    │   ├── 📄 page.tsx               # Landing page
+    │   ├── 📄 layout.tsx             # Root layout
+    │   ├── 📄 globals.css            # Global styles
+    │   │
+    │   ├── 📁 chat/
+    │   │   ├── 📁 start/
+    │   │   │   └── 📄 page.tsx       # Start chat page
+    │   │   └── 📁 [sessionId]/
+    │   │       └── 📄 page.tsx       # Chat interface
+    │   │
+    │   ├── 📁 appointment/
+    │   │   └── 📁 book/
+    │   │       └── 📄 page.tsx       # Appointment booking
+    │   │
+    │   └── 📁 therapist/
+    │       ├── 📄 page.tsx           # Therapist dashboard
+    │       ├── 📁 analytics/
+    │       │   └── 📄 page.tsx       # Analytics page
+    │       └── 📁 session/
+    │           └── 📁 [sessionId]/
+    │               └── 📄 page.tsx   # Session details
+    │
+    ├── 📁 components/                # React components
+    │   └── 📄 Providers.tsx          # Query client provider
+    │
+    ├── 📁 services/                  # API client
+    │   └── 📄 api.ts                 # API functions
+    │
+    ├── 📁 store/                     # Zustand stores
+    │   └── 📄 chatStore.ts           # Chat state
+    │
+    ├── 📁 hooks/                     # Custom hooks
+    │   └── 📄 useWebSocket.ts        # WebSocket hook
+    │
+    └── 📁 lib/                       # Utilities
+        └── 📄 utils.ts               # Helper functions
+
+
+📊 Statistics
+=============
+Total Files: 70+
+Backend Files: 35+
+Frontend Files: 20+
+Documentation: 5 comprehensive guides
+Lines of Code: ~5,000+
+
+
+🎯 Key Features
+===============
+✅ Auth-free architecture
+✅ Real-time WebSocket chat
+✅ AI emotion detection
+✅ Appointment booking
+✅ Therapist dashboard
+✅ Analytics & charts
+✅ Docker containerized
+✅ Database migrations
+✅ TypeScript throughout
+✅ Production-ready
+
+
+🚀 To Start
+===========
+Windows:  start.bat
+Mac/Linux: ./start.sh
+Manual:   docker-compose up --build
+
+Then visit: http://localhost:3000
+
+
+📚 Documentation
+================
+README.md          - Features, setup, API
+SETUP.md           - Detailed setup, troubleshooting
+ARCHITECTURE.md    - System design, architecture
+PROJECT_SUMMARY.md - Complete overview
+QUICK_REFERENCE.md - Command cheat sheet
+
+
+🔗 Access Points
+================
+Homepage:    http://localhost:3000
+Chat:        http://localhost:3000/chat/start
+Appointments: http://localhost:3000/appointment/book
+Therapist:   http://localhost:3000/therapist
+Analytics:   http://localhost:3000/therapist/analytics
+Backend:     http://localhost:8000
+API Docs:    http://localhost:8000/docs
+
+
+All systems ready! 🎉
