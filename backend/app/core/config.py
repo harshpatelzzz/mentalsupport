@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     EMOTION_MODEL: str = "j-hartmann/emotion-english-distilroberta-base"
     USE_FALLBACK_EMOTION: bool = True
     
+    # Gemini AI Configuration
+    GEMINI_API_KEY: str = ""  # Set via environment variable or leave empty for fallback
+    USE_GEMINI: bool = False  # Set to True when you have API key
+    
     class Config:
         env_file = ".env"
         case_sensitive = True

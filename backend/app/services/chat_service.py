@@ -9,6 +9,7 @@ from app.models.visitor import Visitor
 from app.models.emotion import EmotionData
 from app.schemas.chat import ChatMessageCreate, ChatMessageResponse
 from app.services.emotion_service import emotion_analyzer
+from app.services.gemini_service import gemini_service
 from app.core.logging import logger
 
 
@@ -98,40 +99,61 @@ class ChatService:
         return messages
     
     @staticmethod
-    def get_ai_response(message_content: str) -> str:
+    def get_ai_response(message_content: str, session_id: Optional[UUID] = None, db: Optional[Session] = None) -> str:
         """
-        Generate AI chatbot response.
-        Simple rule-based responses for demonstration.
+        Generate AI chatbot response using Google Gemini AI.
+        Falls back to simple responses if Gemini is not available.
         
         Args:
             message_content: User's message
+            session_id: Chat session ID for conversation history (optional)
+            db: Database session for retrieving history (optional)
             
         Returns:
-            AI response text
+            AI-generated response (may contain <<ESCALATE>> token)
         """
-        content_lower = message_content.lower()
+        # Build conversation history for context
+        conversation_history = []
         
-        # Simple response logic
-        if any(word in content_lower for word in ["hello", "hi", "hey"]):
-            return "Hello! I'm here to listen and support you. How are you feeling today?"
+        if session_id and db:
+            try:
+                # Get recent messages for context
+                recent_messages = ChatService.get_chat_history(db, session_id, limit=6)
+                
+                for msg in recent_messages:
+                    role = "user" if msg.sender_type == SenderType.VISITOR else "ai"
+                    conversation_history.append({
+                        "role": role,
+                        "content": msg.content
+                    })
+            except Exception as e:
+                logger.warning(f"Could not load conversation history: {e}")
         
-        elif any(word in content_lower for word in ["sad", "depressed", "down"]):
-            return "I'm sorry you're feeling this way. It's okay to feel sad sometimes. Would you like to talk about what's troubling you?"
+        # Add current user message
+        conversation_history.append({
+            "role": "user",
+            "content": message_content
+        })
         
-        elif any(word in content_lower for word in ["anxious", "worried", "nervous"]):
-            return "I understand anxiety can be overwhelming. Let's take this one step at a time. What's causing you the most worry right now?"
-        
-        elif any(word in content_lower for word in ["angry", "mad", "frustrated"]):
-            return "It sounds like you're experiencing some intense feelings. Anger is a valid emotion. What's been happening that's made you feel this way?"
-        
-        elif any(word in content_lower for word in ["thank", "thanks"]):
-            return "You're welcome. I'm here for you whenever you need support."
-        
-        elif any(word in content_lower for word in ["bye", "goodbye"]):
-            return "Take care of yourself. Remember, support is always available when you need it."
-        
-        else:
-            return "I hear you. Can you tell me more about how you're feeling?"
+        # Use Gemini AI to generate response
+        try:
+            ai_response = gemini_service.generate_response(conversation_history)
+            logger.info(f"AI Response generated: {ai_response[:50]}...")
+            return ai_response
+            
+        except Exception as e:
+            logger.error(f"Error generating AI response: {e}")
+            # Fallback to simple response
+            content_lower = message_content.lower()
+            
+            if any(word in content_lower for word in ["hello", "hi", "hey"]):
+                return "Hello! I'm here to listen and support you. How are you feeling today?"
+            elif any(word in content_lower for word in ["sad", "depressed", "down"]):
+                return "I'm sorry you're feeling this way. It's okay to feel sad sometimes. Would you like to talk about what's troubling you?"
+            elif any(word in content_lower for word in ["anxious", "worried", "nervous"]):
+                return "I understand anxiety can be overwhelming. Let's take this one step at a time. What's causing you the most worry right now?"
+            else:
+                return "I hear you. Can you tell me more about how you're feeling?"
     
     @staticmethod
     def get_session_stats(db: Session, session_id: UUID) -> dict:

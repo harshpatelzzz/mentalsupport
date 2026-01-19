@@ -273,9 +273,46 @@ async def websocket_endpoint(
                 # Send typing indicator
                 await manager.send_typing_indicator(session_id, "ai", True)
                 
-                # Generate AI response
-                ai_response_content = chat_service.get_ai_response(message_create.content)
-                logger.info(f"AI response generated: '{ai_response_content[:50]}...'")
+                # Generate AI response (with Gemini AI)
+                ai_response_content = chat_service.get_ai_response(
+                    message_create.content,
+                    session_id=UUID(session_id),
+                    db=db
+                )
+                logger.info(f"AI response generated: '{ai_response_content[:100]}...'")
+                
+                # 🚨 CRITICAL: Check if Gemini wants to escalate
+                if "<<ESCALATE>>" in ai_response_content:
+                    logger.warning(f"=" * 80)
+                    logger.warning(f"🚨 GEMINI AI DETECTED ESCALATION NEED 🚨")
+                    logger.warning(f"Session: {session_id}")
+                    logger.warning(f"Gemini said: {ai_response_content}")
+                    logger.warning(f"=" * 80)
+                    
+                    # Stop typing indicator
+                    await manager.send_typing_indicator(session_id, "ai", False)
+                    
+                    # Create escalation record
+                    gemini_escalation = ChatEscalation(
+                        session_id=UUID(session_id),
+                        reason="gemini_detected",
+                        user_accepted="pending"
+                    )
+                    db.add(gemini_escalation)
+                    db.commit()
+                    logger.warning(f"✅ Created Gemini escalation record ID: {gemini_escalation.id}")
+                    
+                    # Send SYSTEM_SUGGESTION
+                    system_message = {
+                        "type": "SYSTEM_SUGGESTION",
+                        "session_id": session_id,
+                        "message": "I can help you connect with a therapist. Would you like me to book an appointment for you?",
+                        "reason": "gemini_detected"
+                    }
+                    logger.warning(f"📤 Sending SYSTEM_SUGGESTION (Gemini escalation)")
+                    await manager.broadcast_to_session(system_message, session_id)
+                    logger.warning(f"🛑 SKIPPING AI RESPONSE - Gemini triggered escalation")
+                    continue  # Skip sending the <<ESCALATE>> token as a message
                 
                 # Stop typing indicator
                 await manager.send_typing_indicator(session_id, "ai", False)
