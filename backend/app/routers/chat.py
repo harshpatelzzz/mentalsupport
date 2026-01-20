@@ -141,8 +141,8 @@ async def websocket_endpoint(
     db: Session = Depends(get_db)
 ):
     """
-    WebSocket endpoint for real-time chat.
-    Handles message exchange, emotion analysis, and AI responses.
+    🚨 NUCLEAR FIX: WebSocket endpoint for real-time chat.
+    If therapist socket exists → AI code path is UNREACHABLE.
     Requires role query parameter: ?role=user or ?role=therapist
     """
     # 🚨 CRITICAL: Get role from query params
@@ -154,13 +154,15 @@ async def websocket_endpoint(
         await websocket.close(code=1008, reason="Invalid or missing role parameter")
         return
     
-    # Connect with role
-    await manager.connect(websocket, session_id, role)
+    # Connect with role (single source of truth)
+    await manager.connect(session_id, role, websocket)
     logger.warning(f"🔌 WebSocket accepted: session={session_id}, role={role}")
     
-    # 🚨 CRITICAL: If therapist connects, set mode to THERAPIST_JOINED immediately
+    # 🔔 If therapist connects, notify user immediately
     if role == "therapist":
-        logger.warning(f"🧑‍⚕️ THERAPIST CONNECTING - Setting chat_mode to THERAPIST_JOINED")
+        logger.warning(f"🧑‍⚕️ THERAPIST CONNECTED - Notifying user, bot is now DEAD ☠️")
+        
+        # Update DB mode
         appointment = db.query(Appointment)\
             .filter(Appointment.session_id == UUID(session_id))\
             .first()
@@ -169,20 +171,18 @@ async def websocket_endpoint(
             appointment.chat_mode = ChatMode.THERAPIST_JOINED
             db.commit()
             logger.warning(f"✅ Appointment {appointment.id} chat_mode = THERAPIST_JOINED")
-            
-            # Send system message
-            system_message = {
-                "type": "message",
-                "sender": "system",
-                "content": "🧑‍⚕️ Therapist has joined. You can talk directly now.",
-                "timestamp": datetime.utcnow().isoformat(),
-                "emotion": None,
-                "confidence": None
-            }
-            await manager.broadcast_to_session(system_message, session_id)
-            logger.warning(f"📢 Sent therapist join system message")
-        else:
-            logger.warning(f"⚠️ No appointment found for session {session_id} - therapist connection allowed anyway")
+        
+        # Send system message to OTHER participants (not therapist)
+        system_message = {
+            "type": "message",
+            "sender": "system",
+            "content": "🧑‍⚕️ Therapist has joined the chat.",
+            "timestamp": datetime.utcnow().isoformat(),
+            "emotion": None,
+            "confidence": None
+        }
+        await manager.send_to_other(session_id, "therapist", system_message)
+        logger.warning(f"📢 Sent therapist join notification to user")
     
     try:
         while True:
@@ -192,30 +192,26 @@ async def websocket_endpoint(
             
             # Handle typing indicators
             if message_data.get("type") == "typing":
-                await manager.send_typing_indicator(
-                    session_id,
-                    message_data.get("sender", "user"),
-                    message_data.get("is_typing", False)
-                )
+                sender_role = manager.get_role(websocket, session_id) or "user"
+                await manager.send_typing_indicator(session_id, sender_role, message_data.get("is_typing", False))
                 continue
             
-            # 🚨 CRITICAL: Get sender from CONNECTION ROLE, not message payload
-            sender = manager.get_role(websocket, session_id) or "user"
+            # Get content
             content = message_data.get("content", "")
-            
             if not content.strip():
                 continue
             
-            logger.warning(f"📨 Received message from '{sender}' (from connection role) in session {session_id}")
+            # 🚨 CRITICAL: Get sender from CONNECTION ROLE (ground truth)
+            sender_role = manager.get_role(websocket, session_id) or "user"
+            logger.warning(f"📨 Received message from '{sender_role}' (from connection) in session {session_id}")
             
-            # Map role to SenderType enum (role comes from connection, not message)
+            # Map role to SenderType enum
             sender_type_map = {
                 "user": SenderType.VISITOR,
                 "therapist": SenderType.THERAPIST,
                 "ai": SenderType.AI
             }
-            sender_type = sender_type_map.get(sender, SenderType.VISITOR)
-            logger.info(f"Mapped role '{sender}' to SenderType.{sender_type.value}")
+            sender_type = sender_type_map.get(sender_role, SenderType.VISITOR)
             
             # Save message to database
             message_create = ChatMessageCreate(
@@ -225,41 +221,36 @@ async def websocket_endpoint(
                 visitor_id=UUID(message_data["visitor_id"]) if message_data.get("visitor_id") else None
             )
             chat_message = chat_service.create_message(db, message_create)
+            logger.info(f"💾 Saved message from '{sender_role}' to database")
             
-            # Broadcast message to all participants
+            # Prepare message response
             message_response = {
                 "type": "message",
                 "id": str(chat_message.id),
                 "session_id": str(chat_message.session_id),
-                "sender": sender,  # Use "sender" not "sender_type"
+                "sender": sender_role,
                 "content": chat_message.content,
                 "emotion": chat_message.emotion,
                 "confidence": chat_message.confidence,
                 "created_at": chat_message.created_at.isoformat()
             }
+            
+            # 🚨 NUCLEAR CHECK: Does a therapist socket exist?
+            if manager.has_therapist(session_id):
+                logger.warning(f"☠️ THERAPIST SOCKET EXISTS - AI CODE PATH IS UNREACHABLE ☠️")
+                # Human-only routing: send to OTHER participant(s)
+                await manager.send_to_other(session_id, sender_role, message_response)
+                logger.info(f"✅ Routed {sender_role} message to other participant")
+                continue  # 🚨 EXIT IMMEDIATELY - AI CANNOT RUN
+            
+            # If we reach here: NO therapist socket exists
+            # Broadcast to all (in case user has multiple tabs)
             await manager.broadcast_to_session(message_response, session_id)
-            logger.info(f"✅ Broadcasted message from '{sender}'")
+            logger.info(f"✅ Broadcasted message from '{sender_role}'")
             
-            # 🚨 CRITICAL: Check appointment mode BEFORE any AI logic
-            # Fetch appointment from DB (always get latest state)
-            appointment = db.query(Appointment)\
-                .filter(Appointment.session_id == UUID(session_id))\
-                .first()
-            
-            # DEBUG: Log current chat mode
-            if appointment:
-                logger.warning(f"📊 DEBUG - Session {session_id} | CHAT_MODE: {appointment.chat_mode.value}")
-            else:
-                logger.warning(f"⚠️ DEBUG - Session {session_id} | No appointment found (chat_mode will default to BOT_ONLY)")
-            
-            # If therapist has joined, ONLY broadcast (no bot replies)
-            if appointment and appointment.chat_mode == ChatMode.THERAPIST_JOINED:
-                logger.warning(f"🧑‍⚕️ THERAPIST_JOINED mode - Bot will NOT respond")
-                continue  # Skip all AI logic
-            
-            # Only generate AI response if role is "user" AND mode is BOT_ONLY
-            if sender == "user":
-                logger.warning(f"🤖 BOT_ONLY mode - Generating AI response for user message")
+            # 🤖 BOT IS ALLOWED ONLY IF: No therapist socket AND role is "user"
+            if sender_role == "user":
+                logger.warning(f"🤖 NO THERAPIST - Generating AI response")
                 
                 # ============================================
                 # STEP 1: Check if ANY escalation exists for this session
@@ -287,7 +278,7 @@ async def websocket_endpoint(
                             "session_id": session_id,
                             "message": "Perfect! Let me book an appointment for you right away..."
                         }
-                        await manager.broadcast_to_session(confirmation_message, session_id)
+                        await manager.send_to_role(session_id, "user", confirmation_message)
                         continue  # Don't generate AI response
                     
                     # Check for decline
@@ -336,9 +327,9 @@ async def websocket_endpoint(
                             "message": "I understand you'd like to speak with a therapist. Would you like me to book an appointment for you right away?",
                             "reason": "user_request"
                         }
-                        logger.warning(f"📤 Broadcasting SYSTEM_SUGGESTION to all connections in session {session_id}")
-                        await manager.broadcast_to_session(system_message, session_id)
-                        logger.warning(f"✅ SYSTEM_SUGGESTION broadcast complete")
+                        logger.warning(f"📤 Sending SYSTEM_SUGGESTION to user in session {session_id}")
+                        await manager.send_to_role(session_id, "user", system_message)
+                        logger.warning(f"✅ SYSTEM_SUGGESTION sent to user")
                         
                         # 🛑 CRITICAL: STOP EXECUTION - Do NOT continue to AI response
                         logger.warning(f"🛑 RETURNING NOW - NO AI RESPONSE WILL BE GENERATED 🛑")
@@ -371,7 +362,7 @@ async def websocket_endpoint(
                             "message": "I want to make sure you get the best support. It might help to talk with a professional therapist. Would you like me to book an appointment for you?",
                             "reason": health_result["reason"]
                         }
-                        await manager.broadcast_to_session(system_message, session_id)
+                        await manager.send_to_role(session_id, "user", system_message)
                         
                         # 🛑 STOP HERE - Do NOT generate AI response
                         continue
@@ -386,8 +377,12 @@ async def websocket_endpoint(
                 logger.info(f"User message: '{message_create.content[:50]}...'")
                 logger.info(f"=" * 80)
                 
-                # Send typing indicator
-                await manager.send_typing_indicator(session_id, "ai", True)
+                # Send typing indicator to user
+                await manager.send_to_role(session_id, "user", {
+                    "type": "typing",
+                    "sender": "ai",
+                    "is_typing": True
+                })
                 
                 # Generate AI response (with Gemini AI)
                 ai_response_content = chat_service.get_ai_response(
@@ -406,7 +401,11 @@ async def websocket_endpoint(
                     logger.warning(f"=" * 80)
                     
                     # Stop typing indicator
-                    await manager.send_typing_indicator(session_id, "ai", False)
+                    await manager.send_to_role(session_id, "user", {
+                        "type": "typing",
+                        "sender": "ai",
+                        "is_typing": False
+                    })
                     
                     # Create escalation record
                     gemini_escalation = ChatEscalation(
@@ -426,12 +425,16 @@ async def websocket_endpoint(
                         "reason": "gemini_detected"
                     }
                     logger.warning(f"📤 Sending SYSTEM_SUGGESTION (Gemini escalation)")
-                    await manager.broadcast_to_session(system_message, session_id)
+                    await manager.send_to_role(session_id, "user", system_message)
                     logger.warning(f"🛑 SKIPPING AI RESPONSE - Gemini triggered escalation")
                     continue  # Skip sending the <<ESCALATE>> token as a message
                 
                 # Stop typing indicator
-                await manager.send_typing_indicator(session_id, "ai", False)
+                await manager.send_to_role(session_id, "user", {
+                    "type": "typing",
+                    "sender": "ai",
+                    "is_typing": False
+                })
                 
                 # Create AI message
                 ai_message_create = ChatMessageCreate(
@@ -443,25 +446,29 @@ async def websocket_endpoint(
                 
                 ai_message = chat_service.create_message(db, ai_message_create)
                 
-                # Broadcast AI response
+                # Broadcast AI response to user
                 ai_message_response = {
                     "type": "message",
                     "id": str(ai_message.id),
                     "session_id": str(ai_message.session_id),
-                    "sender": "ai",  # Use "sender" not "sender_type"
+                    "sender": "ai",
                     "content": ai_message.content,
                     "emotion": ai_message.emotion,
                     "confidence": ai_message.confidence,
                     "created_at": ai_message.created_at.isoformat()
                 }
                 
-                await manager.broadcast_to_session(ai_message_response, session_id)
-                logger.info(f"✅ AI response broadcasted")
+                await manager.send_to_role(session_id, "user", ai_message_response)
+                logger.info(f"✅ AI response sent to user")
     
     except WebSocketDisconnect:
-        manager.disconnect(websocket, session_id)
-        logger.info(f"Client disconnected from session {session_id}")
+        role = manager.get_role(websocket, session_id)
+        if role:
+            manager.disconnect(session_id, role)
+            logger.warning(f"🔌 {role} disconnected from session {session_id}")
     
     except Exception as e:
         logger.error(f"WebSocket error in session {session_id}: {e}")
-        manager.disconnect(websocket, session_id)
+        role = manager.get_role(websocket, session_id)
+        if role:
+            manager.disconnect(session_id, role)
