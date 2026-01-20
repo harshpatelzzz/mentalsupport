@@ -77,8 +77,8 @@ export const chatApi = {
     return response.data
   },
 
-  therapistJoinSession: async (sessionId: string) => {
-    const response = await api.post(`/api/chat/session/${sessionId}/therapist-join`)
+  therapistJoinAppointment: async (appointmentId: string) => {
+    const response = await api.post(`/api/chat/therapist/join/${appointmentId}`)
     return response.data
   },
 }

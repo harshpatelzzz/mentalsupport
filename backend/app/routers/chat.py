@@ -11,7 +11,7 @@ from app.schemas.chat import ChatMessageCreate, ChatMessageResponse, ChatHistory
 from app.models.chat import SenderType
 from app.models.visitor import Visitor
 from app.models.chat_escalation import ChatEscalation
-from app.models.chat_session import ChatSession, SessionMode
+from app.models.appointment import Appointment, ChatMode
 from app.services.chat_service import chat_service
 from app.services.chat_health_service import chat_health_service
 from app.websocket.connection_manager import manager
@@ -89,52 +89,46 @@ def get_session_stats(
     return stats
 
 
-@router.post("/session/{session_id}/therapist-join")
-async def therapist_join_session(
-    session_id: UUID,
+@router.post("/therapist/join/{appointment_id}")
+async def therapist_join_appointment(
+    appointment_id: UUID,
     db: Session = Depends(get_db)
 ):
     """
-    Therapist joins a chat session.
-    Sets mode to THERAPIST_JOINED and notifies the user.
+    Therapist joins an appointment chat.
+    Sets chat_mode to THERAPIST_JOINED and notifies the user.
     """
-    logger.info(f"🧑‍⚕️ Therapist joining session {session_id}")
+    logger.info(f"🧑‍⚕️ Therapist joining appointment {appointment_id}")
     
-    # Get or create chat session
-    chat_session = db.query(ChatSession)\
-        .filter(ChatSession.session_id == session_id)\
-        .first()
+    # Get appointment
+    appointment = db.query(Appointment).filter(Appointment.id == appointment_id).first()
     
-    if not chat_session:
-        chat_session = ChatSession(
-            session_id=session_id,
-            mode=SessionMode.BOT_ONLY
-        )
-        db.add(chat_session)
+    if not appointment:
+        raise HTTPException(status_code=404, detail="Appointment not found")
     
-    # Update mode to THERAPIST_JOINED
-    chat_session.mode = SessionMode.THERAPIST_JOINED
-    chat_session.therapist_joined_at = datetime.utcnow()
+    # Update chat mode to THERAPIST_JOINED
+    appointment.chat_mode = ChatMode.THERAPIST_JOINED
     db.commit()
     
-    logger.info(f"✅ Session {session_id} mode changed to THERAPIST_JOINED")
+    logger.info(f"✅ Appointment {appointment_id} chat_mode changed to THERAPIST_JOINED")
     
     # Send system message to notify user
     system_message = {
-        "type": "SYSTEM_MESSAGE",
-        "session_id": str(session_id),
-        "message": "🧑‍⚕️ A therapist has joined the chat. The bot will no longer respond.",
+        "type": "system",
+        "sender": "system",
+        "content": "🧑‍⚕️ Therapist has joined. You can talk directly now.",
+        "session_id": str(appointment.session_id),
         "timestamp": datetime.utcnow().isoformat()
     }
     
-    await manager.broadcast_to_session(system_message, str(session_id))
-    logger.info(f"📢 Sent therapist join notification to session {session_id}")
+    await manager.broadcast_to_session(system_message, str(appointment.session_id))
+    logger.info(f"📢 Sent therapist join notification to session {appointment.session_id}")
     
     return {
-        "status": "success",
-        "session_id": str(session_id),
-        "mode": chat_session.mode.value,
-        "therapist_joined_at": chat_session.therapist_joined_at.isoformat() if chat_session.therapist_joined_at else None
+        "status": "ok",
+        "appointment_id": str(appointment_id),
+        "session_id": str(appointment.session_id),
+        "chat_mode": appointment.chat_mode.value
     }
 
 
@@ -156,68 +150,69 @@ async def websocket_endpoint(
             data = await websocket.receive_text()
             message_data = json.loads(data)
             
-            # Handle different message types
+            # Handle typing indicators
             if message_data.get("type") == "typing":
-                # Broadcast typing indicator
                 await manager.send_typing_indicator(
                     session_id,
-                    message_data.get("sender_type", "visitor"),
+                    message_data.get("sender", "user"),
                     message_data.get("is_typing", False)
                 )
                 continue
             
-            # Create message in database
+            # Extract sender and content
+            sender = message_data.get("sender", "user")  # "user" | "therapist" | "ai"
+            content = message_data.get("content", "")
+            
+            if not content.strip():
+                continue
+            
+            logger.info(f"📨 Received message from '{sender}' in session {session_id}")
+            
+            # Map sender to SenderType enum
+            sender_type_map = {
+                "user": SenderType.VISITOR,
+                "therapist": SenderType.THERAPIST,
+                "ai": SenderType.AI
+            }
+            sender_type = sender_type_map.get(sender, SenderType.VISITOR)
+            
+            # Save message to database
             message_create = ChatMessageCreate(
                 session_id=UUID(session_id),
-                sender_type=SenderType(message_data.get("sender_type", "visitor")),
-                content=message_data.get("content", ""),
+                sender_type=sender_type,
+                content=content,
                 visitor_id=UUID(message_data["visitor_id"]) if message_data.get("visitor_id") else None
             )
-            
-            # Save message
             chat_message = chat_service.create_message(db, message_create)
             
-            # Broadcast message to all session participants
+            # Broadcast message to all participants
             message_response = {
                 "type": "message",
                 "id": str(chat_message.id),
                 "session_id": str(chat_message.session_id),
-                "sender_type": chat_message.sender_type.value,
+                "sender": sender,  # Use "sender" not "sender_type"
                 "content": chat_message.content,
                 "emotion": chat_message.emotion,
                 "confidence": chat_message.confidence,
                 "created_at": chat_message.created_at.isoformat()
             }
-            
             await manager.broadcast_to_session(message_response, session_id)
+            logger.info(f"✅ Broadcasted message from '{sender}'")
             
-            # Generate AI response if message is from visitor
-            if message_create.sender_type == SenderType.VISITOR:
-                logger.info(f"Processing visitor message in session {session_id}")
-                
-                # ============================================
-                # STEP 0: Check session mode - if therapist joined, skip bot
-                # ============================================
-                chat_session = db.query(ChatSession)\
-                    .filter(ChatSession.session_id == UUID(session_id))\
-                    .first()
-                
-                if not chat_session:
-                    # Create new session in BOT_ONLY mode
-                    chat_session = ChatSession(
-                        session_id=UUID(session_id),
-                        mode=SessionMode.BOT_ONLY
-                    )
-                    db.add(chat_session)
-                    db.commit()
-                    logger.info(f"Created new chat session {session_id} in BOT_ONLY mode")
-                
-                # If therapist has joined, DO NOT generate AI response
-                if chat_session.mode == SessionMode.THERAPIST_JOINED:
-                    logger.info(f"🧑‍⚕️ Therapist active in session {session_id} - Bot will NOT respond")
-                    continue  # Skip AI response generation
-                
-                logger.info(f"🤖 Bot mode active in session {session_id} - Generating AI response")
+            # 🚨 CRITICAL: Check appointment mode BEFORE any AI logic
+            # Fetch appointment from DB (always get latest state)
+            appointment = db.query(Appointment)\
+                .filter(Appointment.session_id == UUID(session_id))\
+                .first()
+            
+            # If therapist has joined, ONLY broadcast (no bot replies)
+            if appointment and appointment.chat_mode == ChatMode.THERAPIST_JOINED:
+                logger.info(f"🧑‍⚕️ THERAPIST_JOINED mode - Bot will NOT respond")
+                continue  # Skip all AI logic
+            
+            # Only generate AI response if sender is "user" AND mode is BOT_ONLY
+            if sender == "user":
+                logger.info(f"🤖 BOT_ONLY mode - Generating AI response")
                 
                 # ============================================
                 # STEP 1: Check if ANY escalation exists for this session
@@ -406,7 +401,7 @@ async def websocket_endpoint(
                     "type": "message",
                     "id": str(ai_message.id),
                     "session_id": str(ai_message.session_id),
-                    "sender_type": ai_message.sender_type.value,
+                    "sender": "ai",  # Use "sender" not "sender_type"
                     "content": ai_message.content,
                     "emotion": ai_message.emotion,
                     "confidence": ai_message.confidence,
@@ -414,6 +409,7 @@ async def websocket_endpoint(
                 }
                 
                 await manager.broadcast_to_session(ai_message_response, session_id)
+                logger.info(f"✅ AI response broadcasted")
     
     except WebSocketDisconnect:
         manager.disconnect(websocket, session_id)

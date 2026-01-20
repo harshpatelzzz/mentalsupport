@@ -14,6 +14,12 @@ class AppointmentStatus(str, enum.Enum):
     CANCELLED = "cancelled"
 
 
+class ChatMode(str, enum.Enum):
+    """Chat mode enumeration"""
+    BOT_ONLY = "BOT_ONLY"
+    THERAPIST_JOINED = "THERAPIST_JOINED"
+
+
 class Appointment(Base):
     """
     Represents a scheduled appointment between a visitor and therapist.
@@ -28,6 +34,7 @@ class Appointment(Base):
     start_time = Column(DateTime(timezone=True), nullable=False, index=True)
     end_time = Column(DateTime(timezone=True), nullable=True)
     status = Column(SQLEnum(AppointmentStatus), default=AppointmentStatus.SCHEDULED, nullable=False)
+    chat_mode = Column(SQLEnum(ChatMode), default=ChatMode.BOT_ONLY, nullable=False)  # Controls bot behavior
     
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)

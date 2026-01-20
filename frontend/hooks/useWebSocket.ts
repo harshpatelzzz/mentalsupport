@@ -35,7 +35,7 @@ export function useWebSocket(sessionId: string | null) {
         const message: ChatMessage = {
           id: data.id,
           session_id: data.session_id,
-          sender_type: data.sender_type,
+          sender_type: data.sender || data.sender_type, // Handle both "sender" and legacy "sender_type"
           content: data.content,
           emotion: data.emotion,
           confidence: data.confidence,
@@ -45,9 +45,10 @@ export function useWebSocket(sessionId: string | null) {
         addMessage(message)
       } else if (data.type === 'typing') {
         // Typing indicator
-        if (data.sender_type === 'therapist') {
+        const sender = data.sender || data.sender_type
+        if (sender === 'therapist') {
           setTherapistTyping(data.is_typing)
-        } else if (data.sender_type === 'ai') {
+        } else if (sender === 'ai') {
           setAiTyping(data.is_typing)
         }
       } else if (data.type === 'SYSTEM_SUGGESTION') {
@@ -109,7 +110,7 @@ export function useWebSocket(sessionId: string | null) {
     }
   }, [sessionId])
 
-  const sendMessage = (content: string, senderType: string, visitorId?: string) => {
+  const sendMessage = (content: string, sender: string, visitorId?: string) => {
     const ws = wsRef.current
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       console.error('WebSocket not connected')
@@ -117,19 +118,19 @@ export function useWebSocket(sessionId: string | null) {
     }
 
     ws.send(JSON.stringify({
+      sender,  // "user" | "therapist" | "ai"
       content,
-      sender_type: senderType,
       visitor_id: visitorId,
     }))
   }
 
-  const sendTypingIndicator = (isTyping: boolean, senderType: string) => {
+  const sendTypingIndicator = (isTyping: boolean, sender: string) => {
     const ws = wsRef.current
     if (!ws || ws.readyState !== WebSocket.OPEN) return
 
     ws.send(JSON.stringify({
       type: 'typing',
-      sender_type: senderType,
+      sender,  // "user" | "therapist" | "ai"
       is_typing: isTyping,
     }))
   }

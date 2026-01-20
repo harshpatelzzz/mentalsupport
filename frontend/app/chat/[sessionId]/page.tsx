@@ -35,14 +35,22 @@ export default function ChatPage() {
   
   const { sendMessage, sendTypingIndicator } = useWebSocket(sessionId)
 
-  // Therapist join session
+  // Therapist join appointment
   useEffect(() => {
     const joinAsTherapist = async () => {
       if (isTherapist && sessionId) {
         try {
           console.log('🧑‍⚕️ Therapist joining session:', sessionId)
-          await chatApi.therapistJoinSession(sessionId)
-          console.log('✅ Therapist joined successfully')
+          // Note: In real scenario, we'd get appointment_id from URL or API
+          // For now, we'll fetch appointment by session_id first
+          const appointmentsResponse = await axios.get(
+            `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/appointments/session/${sessionId}`
+          )
+          if (appointmentsResponse.data) {
+            const appointmentId = appointmentsResponse.data.id
+            await chatApi.therapistJoinAppointment(appointmentId)
+            console.log('✅ Therapist joined appointment successfully')
+          }
         } catch (error) {
           console.error('Failed to join as therapist:', error)
         }
@@ -107,8 +115,8 @@ export default function ChatPage() {
     
     if (!input.trim() || !isConnected) return
 
-    const senderType = isTherapist ? 'therapist' : 'visitor'
-    sendMessage(input, senderType, visitorId || undefined)
+    const sender = isTherapist ? 'therapist' : 'user'  // "user" not "visitor"
+    sendMessage(input, sender, visitorId || undefined)
     setInput('')
     inputRef.current?.focus()
   }
@@ -117,11 +125,11 @@ export default function ChatPage() {
     setInput(e.target.value)
     
     // Send typing indicator (throttled in production)
-    const senderType = isTherapist ? 'therapist' : 'visitor'
+    const sender = isTherapist ? 'therapist' : 'user'  // "user" not "visitor"
     if (e.target.value.length > 0) {
-      sendTypingIndicator(true, senderType)
+      sendTypingIndicator(true, sender)
     } else {
-      sendTypingIndicator(false, senderType)
+      sendTypingIndicator(false, sender)
     }
   }
 
@@ -130,9 +138,9 @@ export default function ChatPage() {
     
     setIsBooking(true)
     
-    try {
+    try:
       // Send acceptance message to trigger backend logic
-      sendMessage('yes', 'visitor', visitorId || undefined)
+      sendMessage('yes', 'user', visitorId || undefined)
       
       // Small delay to let backend process
       await new Promise(resolve => setTimeout(resolve, 500))
@@ -169,7 +177,7 @@ export default function ChatPage() {
 
   const handleDeclineEscalation = () => {
     // Send decline message
-    sendMessage('not now', 'visitor', visitorId || undefined)
+    sendMessage('not now', 'user', visitorId || undefined)
     setShowEscalation(false)
     // Allow chat to continue normally
   }
