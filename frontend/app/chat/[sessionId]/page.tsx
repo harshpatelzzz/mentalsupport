@@ -138,7 +138,7 @@ export default function ChatPage() {
     
     setIsBooking(true)
     
-    try:
+    try {
       // Send acceptance message to trigger backend logic
       sendMessage('yes', 'user', visitorId || undefined)
       
