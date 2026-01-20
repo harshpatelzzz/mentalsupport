@@ -1,5 +1,6 @@
 'use client'
 
+import 'chart.js/auto' // ✅ Automatically registers ALL Chart.js components
 import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'

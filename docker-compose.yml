@@ -33,8 +33,8 @@ services:
       BACKEND_URL: http://localhost:8000
       DEBUG: "true"
       # Gemini AI Configuration (paste your API key here)
-      GEMINI_API_KEY: ""  # Add your API key: AIzaSyC...
-      USE_GEMINI: "false"  # Change to "true" when you add API key
+      GEMINI_API_KEY: "AIzaSyBSbLofQMJo1dYGCGhTC6kZRfpZnBOoUKw"  # Add your API key: AIzaSyC...
+      USE_GEMINI: "true"  # Change to "true" when you add API key
     ports:
       - "8000:8000"
     depends_on:

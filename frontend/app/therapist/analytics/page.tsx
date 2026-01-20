@@ -1,34 +1,11 @@
 'use client'
 
+import 'chart.js/auto' // ✅ Automatically registers ALL Chart.js components
 import { useQuery } from '@tanstack/react-query'
 import { analyticsApi } from '@/services/api'
 import Link from 'next/link'
 import { ArrowLeft, TrendingUp, MessageSquare, Calendar, Clock } from 'lucide-react'
-import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  BarElement,
-  Title,
-  Tooltip,
-  Legend,
-  ArcElement,
-} from 'chart.js'
 import { Line, Bar, Doughnut } from 'react-chartjs-2'
-
-ChartJS.register(
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  BarElement,
-  Title,
-  Tooltip,
-  Legend,
-  ArcElement
-)
 
 export default function AnalyticsPage() {
   const { data: analytics, isLoading } = useQuery({
