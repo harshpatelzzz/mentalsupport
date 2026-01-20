@@ -16,6 +16,7 @@ from app.services.chat_service import chat_service
 from app.services.chat_health_service import chat_health_service
 from app.websocket.connection_manager import manager
 from app.core.logging import logger
+from app.core.ai_lock import AI_DISABLED_SESSIONS, disable_ai_for_session, is_ai_disabled
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
@@ -158,9 +159,13 @@ async def websocket_endpoint(
     await manager.connect(session_id, role, websocket)
     logger.warning(f"🔌 WebSocket accepted: session={session_id}, role={role}")
     
-    # 🔔 If therapist connects, notify user immediately
+    # 🔔 If therapist connects, DISABLE AI PERMANENTLY
     if role == "therapist":
-        logger.warning(f"🧑‍⚕️ THERAPIST CONNECTED - Notifying user, bot is now DEAD ☠️")
+        logger.warning(f"🧑‍⚕️ THERAPIST CONNECTED - DISABLING AI PERMANENTLY FOR SESSION {session_id}")
+        
+        # 🚨 GLOBAL AI KILL SWITCH - Add to blacklist
+        disable_ai_for_session(session_id)
+        logger.warning(f"☠️ AI DISABLED FOR SESSION {session_id} - PERMANENT")
         
         # Update DB mode
         appointment = db.query(Appointment)\
@@ -176,7 +181,7 @@ async def websocket_endpoint(
         system_message = {
             "type": "message",
             "sender": "system",
-            "content": "🧑‍⚕️ Therapist has joined the chat.",
+            "content": "🧑‍⚕️ Therapist has joined. AI is disabled.",
             "timestamp": datetime.utcnow().isoformat(),
             "emotion": None,
             "confidence": None
@@ -250,6 +255,11 @@ async def websocket_endpoint(
             
             # 🤖 BOT IS ALLOWED ONLY IF: No therapist socket AND role is "user"
             if sender_role == "user":
+                # 🚨 GLOBAL AI KILL SWITCH - Check if AI is disabled for this session
+                if is_ai_disabled(session_id):
+                    logger.warning(f"☠️ AI DISABLED FOR SESSION {session_id} - SKIPPING ALL AI LOGIC")
+                    continue  # EXIT - AI IS DEAD
+                
                 logger.warning(f"🤖 NO THERAPIST - Generating AI response")
                 
                 # ============================================

@@ -11,6 +11,7 @@ from app.schemas.chat import ChatMessageCreate, ChatMessageResponse
 from app.services.emotion_service import emotion_analyzer
 from app.services.gemini_service import gemini_service
 from app.core.logging import logger
+from app.core.ai_lock import is_ai_disabled
 
 
 class ChatService:
@@ -112,6 +113,11 @@ class ChatService:
         Returns:
             AI-generated response (may contain <<ESCALATE>> token)
         """
+        # 🚨 GLOBAL AI KILL SWITCH - Check if AI is disabled for this session
+        if session_id and is_ai_disabled(str(session_id)):
+            logger.warning(f"☠️ AI DISABLED FOR SESSION {session_id} - RETURNING EMPTY RESPONSE")
+            return ""  # AI IS DEAD - Return empty string
+        
         # Build conversation history for context
         conversation_history = []
         
