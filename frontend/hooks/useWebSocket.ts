@@ -71,6 +71,21 @@ export function useWebSocket(sessionId: string | null) {
             message: data.message
           }
         }))
+      } else if (data.type === 'SYSTEM_MESSAGE') {
+        // System message (e.g., therapist joined)
+        console.log('📢 SYSTEM_MESSAGE received:', data.message)
+        // Add as a special system message to chat
+        const systemMessage: ChatMessage = {
+          id: 'system-' + Date.now(),
+          session_id: data.session_id,
+          sender_type: 'ai', // Display as system
+          content: data.message,
+          emotion: null,
+          confidence: null,
+          is_read: 'false',
+          created_at: data.timestamp || new Date().toISOString(),
+        }
+        addMessage(systemMessage)
       } else {
         console.warn('⚠️ Unknown message type:', data.type)
       }

@@ -9,3 +9,4 @@ from app.models.chat import ChatMessage  # noqa
 from app.models.emotion import EmotionData  # noqa
 from app.models.therapist_note import TherapistNote  # noqa
 from app.models.chat_escalation import ChatEscalation  # noqa
+from app.models.chat_session import ChatSession  # noqa

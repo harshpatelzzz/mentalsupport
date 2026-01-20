@@ -11,6 +11,7 @@ from app.schemas.chat import ChatMessageCreate, ChatMessageResponse, ChatHistory
 from app.models.chat import SenderType
 from app.models.visitor import Visitor
 from app.models.chat_escalation import ChatEscalation
+from app.models.chat_session import ChatSession, SessionMode
 from app.services.chat_service import chat_service
 from app.services.chat_health_service import chat_health_service
 from app.websocket.connection_manager import manager
@@ -88,6 +89,55 @@ def get_session_stats(
     return stats
 
 
+@router.post("/session/{session_id}/therapist-join")
+async def therapist_join_session(
+    session_id: UUID,
+    db: Session = Depends(get_db)
+):
+    """
+    Therapist joins a chat session.
+    Sets mode to THERAPIST_JOINED and notifies the user.
+    """
+    logger.info(f"🧑‍⚕️ Therapist joining session {session_id}")
+    
+    # Get or create chat session
+    chat_session = db.query(ChatSession)\
+        .filter(ChatSession.session_id == session_id)\
+        .first()
+    
+    if not chat_session:
+        chat_session = ChatSession(
+            session_id=session_id,
+            mode=SessionMode.BOT_ONLY
+        )
+        db.add(chat_session)
+    
+    # Update mode to THERAPIST_JOINED
+    chat_session.mode = SessionMode.THERAPIST_JOINED
+    chat_session.therapist_joined_at = datetime.utcnow()
+    db.commit()
+    
+    logger.info(f"✅ Session {session_id} mode changed to THERAPIST_JOINED")
+    
+    # Send system message to notify user
+    system_message = {
+        "type": "SYSTEM_MESSAGE",
+        "session_id": str(session_id),
+        "message": "🧑‍⚕️ A therapist has joined the chat. The bot will no longer respond.",
+        "timestamp": datetime.utcnow().isoformat()
+    }
+    
+    await manager.broadcast_to_session(system_message, str(session_id))
+    logger.info(f"📢 Sent therapist join notification to session {session_id}")
+    
+    return {
+        "status": "success",
+        "session_id": str(session_id),
+        "mode": chat_session.mode.value,
+        "therapist_joined_at": chat_session.therapist_joined_at.isoformat() if chat_session.therapist_joined_at else None
+    }
+
+
 @router.websocket("/ws/{session_id}")
 async def websocket_endpoint(
     websocket: WebSocket,
@@ -144,6 +194,30 @@ async def websocket_endpoint(
             # Generate AI response if message is from visitor
             if message_create.sender_type == SenderType.VISITOR:
                 logger.info(f"Processing visitor message in session {session_id}")
+                
+                # ============================================
+                # STEP 0: Check session mode - if therapist joined, skip bot
+                # ============================================
+                chat_session = db.query(ChatSession)\
+                    .filter(ChatSession.session_id == UUID(session_id))\
+                    .first()
+                
+                if not chat_session:
+                    # Create new session in BOT_ONLY mode
+                    chat_session = ChatSession(
+                        session_id=UUID(session_id),
+                        mode=SessionMode.BOT_ONLY
+                    )
+                    db.add(chat_session)
+                    db.commit()
+                    logger.info(f"Created new chat session {session_id} in BOT_ONLY mode")
+                
+                # If therapist has joined, DO NOT generate AI response
+                if chat_session.mode == SessionMode.THERAPIST_JOINED:
+                    logger.info(f"🧑‍⚕️ Therapist active in session {session_id} - Bot will NOT respond")
+                    continue  # Skip AI response generation
+                
+                logger.info(f"🤖 Bot mode active in session {session_id} - Generating AI response")
                 
                 # ============================================
                 # STEP 1: Check if ANY escalation exists for this session

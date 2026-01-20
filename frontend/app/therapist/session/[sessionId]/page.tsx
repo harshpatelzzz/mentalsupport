@@ -101,7 +101,7 @@ export default function SessionDetailsPage() {
               </div>
             </div>
             <button
-              onClick={() => router.push(`/chat/${sessionId}`)}
+              onClick={() => router.push(`/chat/${sessionId}?therapist=true`)}
               className="btn-primary flex items-center space-x-2"
             >
               <MessageCircle className="w-5 h-5" />

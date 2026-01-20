@@ -76,6 +76,11 @@ export const chatApi = {
     const response = await api.get(`/api/chat/session/${sessionId}/stats`)
     return response.data
   },
+
+  therapistJoinSession: async (sessionId: string) => {
+    const response = await api.post(`/api/chat/session/${sessionId}/therapist-join`)
+    return response.data
+  },
 }
 
 // Appointments API

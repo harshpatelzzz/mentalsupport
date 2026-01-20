@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useSearchParams } from 'next/navigation'
 import { useChatStore } from '@/store/chatStore'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { chatApi } from '@/services/api'
@@ -11,7 +11,9 @@ import axios from 'axios'
 
 export default function ChatPage() {
   const params = useParams()
+  const searchParams = useSearchParams()
   const sessionId = params.sessionId as string
+  const isTherapist = searchParams.get('therapist') === 'true'
   
   const [input, setInput] = useState('')
   const [showEscalation, setShowEscalation] = useState(false)
@@ -32,6 +34,23 @@ export default function ChatPage() {
   } = useChatStore()
   
   const { sendMessage, sendTypingIndicator } = useWebSocket(sessionId)
+
+  // Therapist join session
+  useEffect(() => {
+    const joinAsTherapist = async () => {
+      if (isTherapist && sessionId) {
+        try {
+          console.log('🧑‍⚕️ Therapist joining session:', sessionId)
+          await chatApi.therapistJoinSession(sessionId)
+          console.log('✅ Therapist joined successfully')
+        } catch (error) {
+          console.error('Failed to join as therapist:', error)
+        }
+      }
+    }
+    
+    joinAsTherapist()
+  }, [isTherapist, sessionId])
 
   // Load chat history
   useEffect(() => {
@@ -88,7 +107,8 @@ export default function ChatPage() {
     
     if (!input.trim() || !isConnected) return
 
-    sendMessage(input, 'visitor', visitorId || undefined)
+    const senderType = isTherapist ? 'therapist' : 'visitor'
+    sendMessage(input, senderType, visitorId || undefined)
     setInput('')
     inputRef.current?.focus()
   }
@@ -97,10 +117,11 @@ export default function ChatPage() {
     setInput(e.target.value)
     
     // Send typing indicator (throttled in production)
+    const senderType = isTherapist ? 'therapist' : 'visitor'
     if (e.target.value.length > 0) {
-      sendTypingIndicator(true, 'visitor')
+      sendTypingIndicator(true, senderType)
     } else {
-      sendTypingIndicator(false, 'visitor')
+      sendTypingIndicator(false, senderType)
     }
   }
 
