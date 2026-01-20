@@ -20,6 +20,7 @@ export default function ChatPage() {
   const [escalationMessage, setEscalationMessage] = useState('')
   const [isBooking, setIsBooking] = useState(false)
   const [bookingConfirmed, setBookingConfirmed] = useState(false)
+  const [chatMode, setChatMode] = useState<'bot' | 'human'>(isTherapist ? 'human' : 'bot')
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   
@@ -33,7 +34,8 @@ export default function ChatPage() {
     isAiTyping,
   } = useChatStore()
   
-  const { sendMessage, sendTypingIndicator } = useWebSocket(sessionId)
+  // 🚨 SEPARATE WEBSOCKETS: bot chat vs human chat
+  const { sendMessage, sendTypingIndicator } = useWebSocket(sessionId, chatMode)
 
   // Therapist join is now handled automatically via WebSocket connection with ?role=therapist
   // No separate API call needed - the WebSocket handler sets chat_mode when therapist connects
@@ -59,9 +61,9 @@ export default function ChatPage() {
     }
   }, [sessionId])
 
-  // Listen for escalation events
+  // Listen for escalation events and therapist joining
   useEffect(() => {
-    console.log('🎧 Setting up escalation event listeners')
+    console.log('🎧 Setting up event listeners')
     
     const handleEscalationSuggestion = (event: any) => {
       console.log('🚨 escalation-suggestion event received!', event.detail)
@@ -76,17 +78,28 @@ export default function ChatPage() {
       setBookingConfirmed(true)
     }
 
+    const handleTherapistJoined = (event: any) => {
+      console.log('🧑‍⚕️ therapist-joined event received!')
+      if (!isTherapist) {
+        // User side: Switch from bot to human chat
+        console.log('🔄 Switching user from bot chat to human chat')
+        setChatMode('human')
+      }
+    }
+
     window.addEventListener('escalation-suggestion', handleEscalationSuggestion)
     window.addEventListener('escalation-accepted', handleEscalationAccepted)
+    window.addEventListener('therapist-joined', handleTherapistJoined)
     
     console.log('✅ Event listeners attached')
 
     return () => {
-      console.log('🧹 Cleaning up escalation event listeners')
+      console.log('🧹 Cleaning up event listeners')
       window.removeEventListener('escalation-suggestion', handleEscalationSuggestion)
       window.removeEventListener('escalation-accepted', handleEscalationAccepted)
+      window.removeEventListener('therapist-joined', handleTherapistJoined)
     }
-  }, [])
+  }, [isTherapist])
 
   // Auto-scroll to bottom
   useEffect(() => {

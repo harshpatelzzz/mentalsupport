@@ -6,6 +6,7 @@ from app.core.config import settings
 from app.core.logging import logger
 from app.db.init_db import init_db
 from app.routers import chat, appointments, therapist, analytics
+from app.websocket import human_chat_ws
 
 
 @asynccontextmanager
@@ -51,6 +52,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(chat.router)
+app.include_router(human_chat_ws.router)  # Human-to-human chat (NO AI)
 app.include_router(appointments.router)
 app.include_router(therapist.router)
 app.include_router(analytics.router)

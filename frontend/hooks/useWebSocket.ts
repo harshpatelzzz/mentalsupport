@@ -5,7 +5,7 @@ import { ChatMessage } from '@/services/api'
 
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000'
 
-export function useWebSocket(sessionId: string | null) {
+export function useWebSocket(sessionId: string | null, mode: 'bot' | 'human' = 'bot') {
   const wsRef = useRef<WebSocket | null>(null)
   const searchParams = useSearchParams()
   const {
@@ -19,13 +19,13 @@ export function useWebSocket(sessionId: string | null) {
   useEffect(() => {
     if (!sessionId) return
 
-    // 🚨 CRITICAL: Determine role from URL query params
-    const isTherapist = searchParams.get('therapist') === 'true'
-    const role = isTherapist ? 'therapist' : 'user'
+    // 🚨 SEPARATE ENDPOINTS: bot chat vs human chat
+    const endpoint = mode === 'human' 
+      ? `/api/chat/ws/human-chat/${sessionId}`  // Human-to-human (NO AI)
+      : `/api/chat/ws/user-chat/${sessionId}`;   // User-to-bot (AI)
     
-    // Include role in WebSocket URL
-    const ws = new WebSocket(`${WS_URL}/api/chat/ws/${sessionId}?role=${role}`)
-    console.log(`🔌 Connecting WebSocket with role: ${role}`)
+    const ws = new WebSocket(`${WS_URL}${endpoint}`)
+    console.log(`🔌 Connecting to ${mode} chat:`, endpoint)
 
     ws.onopen = () => {
       console.log('WebSocket connected')
@@ -95,6 +95,14 @@ export function useWebSocket(sessionId: string | null) {
           created_at: data.timestamp || new Date().toISOString(),
         }
         addMessage(systemMessage)
+      } else if (data.type === 'THERAPIST_JOINED') {
+        // Therapist joined - notify user to switch modes
+        console.log('🧑‍⚕️ THERAPIST_JOINED event received')
+        window.dispatchEvent(new CustomEvent('therapist-joined', {
+          detail: {
+            message: data.message || 'Therapist has joined the chat'
+          }
+        }))
       } else {
         console.warn('⚠️ Unknown message type:', data.type)
       }
@@ -116,7 +124,7 @@ export function useWebSocket(sessionId: string | null) {
         ws.close()
       }
     }
-  }, [sessionId])
+  }, [sessionId, mode])
 
   const sendMessage = (content: string, sender: string, visitorId?: string) => {
     const ws = wsRef.current
