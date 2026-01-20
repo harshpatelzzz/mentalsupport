@@ -9,4 +9,4 @@ python-multipart==0.0.6
 websockets==12.0
 python-dotenv==1.0.0
 httpx==0.26.0
-google-generativeai==0.3.2
+google-generativeai==0.8.3
