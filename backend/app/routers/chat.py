@@ -143,8 +143,46 @@ async def websocket_endpoint(
     """
     WebSocket endpoint for real-time chat.
     Handles message exchange, emotion analysis, and AI responses.
+    Requires role query parameter: ?role=user or ?role=therapist
     """
-    await manager.connect(websocket, session_id)
+    # 🚨 CRITICAL: Get role from query params
+    role = websocket.query_params.get("role")
+    
+    # Reject connection if role is missing or invalid
+    if role not in ("user", "therapist"):
+        logger.error(f"❌ WebSocket connection rejected: invalid role '{role}'")
+        await websocket.close(code=1008, reason="Invalid or missing role parameter")
+        return
+    
+    # Connect with role
+    await manager.connect(websocket, session_id, role)
+    logger.warning(f"🔌 WebSocket accepted: session={session_id}, role={role}")
+    
+    # 🚨 CRITICAL: If therapist connects, set mode to THERAPIST_JOINED immediately
+    if role == "therapist":
+        logger.warning(f"🧑‍⚕️ THERAPIST CONNECTING - Setting chat_mode to THERAPIST_JOINED")
+        appointment = db.query(Appointment)\
+            .filter(Appointment.session_id == UUID(session_id))\
+            .first()
+        
+        if appointment:
+            appointment.chat_mode = ChatMode.THERAPIST_JOINED
+            db.commit()
+            logger.warning(f"✅ Appointment {appointment.id} chat_mode = THERAPIST_JOINED")
+            
+            # Send system message
+            system_message = {
+                "type": "message",
+                "sender": "system",
+                "content": "🧑‍⚕️ Therapist has joined. You can talk directly now.",
+                "timestamp": datetime.utcnow().isoformat(),
+                "emotion": None,
+                "confidence": None
+            }
+            await manager.broadcast_to_session(system_message, session_id)
+            logger.warning(f"📢 Sent therapist join system message")
+        else:
+            logger.warning(f"⚠️ No appointment found for session {session_id} - therapist connection allowed anyway")
     
     try:
         while True:
@@ -161,22 +199,23 @@ async def websocket_endpoint(
                 )
                 continue
             
-            # Extract sender and content
-            sender = message_data.get("sender", "user")  # "user" | "therapist" | "ai"
+            # 🚨 CRITICAL: Get sender from CONNECTION ROLE, not message payload
+            sender = manager.get_role(websocket, session_id) or "user"
             content = message_data.get("content", "")
             
             if not content.strip():
                 continue
             
-            logger.info(f"📨 Received message from '{sender}' in session {session_id}")
+            logger.warning(f"📨 Received message from '{sender}' (from connection role) in session {session_id}")
             
-            # Map sender to SenderType enum
+            # Map role to SenderType enum (role comes from connection, not message)
             sender_type_map = {
                 "user": SenderType.VISITOR,
                 "therapist": SenderType.THERAPIST,
                 "ai": SenderType.AI
             }
             sender_type = sender_type_map.get(sender, SenderType.VISITOR)
+            logger.info(f"Mapped role '{sender}' to SenderType.{sender_type.value}")
             
             # Save message to database
             message_create = ChatMessageCreate(
@@ -218,9 +257,9 @@ async def websocket_endpoint(
                 logger.warning(f"🧑‍⚕️ THERAPIST_JOINED mode - Bot will NOT respond")
                 continue  # Skip all AI logic
             
-            # Only generate AI response if sender is "user" AND mode is BOT_ONLY
+            # Only generate AI response if role is "user" AND mode is BOT_ONLY
             if sender == "user":
-                logger.info(f"🤖 BOT_ONLY mode - Generating AI response")
+                logger.warning(f"🤖 BOT_ONLY mode - Generating AI response for user message")
                 
                 # ============================================
                 # STEP 1: Check if ANY escalation exists for this session

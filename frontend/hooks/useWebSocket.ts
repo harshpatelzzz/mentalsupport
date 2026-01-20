@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { useChatStore } from '@/store/chatStore'
 import { ChatMessage } from '@/services/api'
 
@@ -6,6 +7,7 @@ const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000'
 
 export function useWebSocket(sessionId: string | null) {
   const wsRef = useRef<WebSocket | null>(null)
+  const searchParams = useSearchParams()
   const {
     setWebSocket,
     setConnected,
@@ -17,7 +19,13 @@ export function useWebSocket(sessionId: string | null) {
   useEffect(() => {
     if (!sessionId) return
 
-    const ws = new WebSocket(`${WS_URL}/api/chat/ws/${sessionId}`)
+    // 🚨 CRITICAL: Determine role from URL query params
+    const isTherapist = searchParams.get('therapist') === 'true'
+    const role = isTherapist ? 'therapist' : 'user'
+    
+    // Include role in WebSocket URL
+    const ws = new WebSocket(`${WS_URL}/api/chat/ws/${sessionId}?role=${role}`)
+    console.log(`🔌 Connecting WebSocket with role: ${role}`)
 
     ws.onopen = () => {
       console.log('WebSocket connected')

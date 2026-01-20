@@ -35,34 +35,12 @@ export default function ChatPage() {
   
   const { sendMessage, sendTypingIndicator } = useWebSocket(sessionId)
 
-  // Therapist join appointment
+  // Therapist join is now handled automatically via WebSocket connection with ?role=therapist
+  // No separate API call needed - the WebSocket handler sets chat_mode when therapist connects
   useEffect(() => {
-    const joinAsTherapist = async () => {
-      if (isTherapist && sessionId) {
-        try {
-          console.log('🧑‍⚕️ Therapist joining session:', sessionId)
-          console.log('Fetching appointment by session_id...')
-          // Note: In real scenario, we'd get appointment_id from URL or API
-          // For now, we'll fetch appointment by session_id first
-          const appointmentsResponse = await axios.get(
-            `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/appointments/session/${sessionId}`
-          )
-          console.log('Appointment response:', appointmentsResponse.data)
-          if (appointmentsResponse.data) {
-            const appointmentId = appointmentsResponse.data.id
-            console.log('Calling therapistJoinAppointment with ID:', appointmentId)
-            const joinResponse = await chatApi.therapistJoinAppointment(appointmentId)
-            console.log('✅ Therapist joined appointment successfully:', joinResponse)
-          } else {
-            console.error('❌ No appointment found for session:', sessionId)
-          }
-        } catch (error) {
-          console.error('❌ Failed to join as therapist:', error)
-        }
-      }
+    if (isTherapist && sessionId) {
+      console.log('🧑‍⚕️ Therapist mode active - WebSocket will connect with role=therapist')
     }
-    
-    joinAsTherapist()
   }, [isTherapist, sessionId])
 
   // Load chat history

@@ -1,34 +1,44 @@
-from typing import Dict, List
+from typing import Dict, List, Optional
 from uuid import UUID
 from fastapi import WebSocket
 from app.core.logging import logger
+
+
+class ConnectionInfo:
+    """Stores connection metadata"""
+    def __init__(self, websocket: WebSocket, role: str):
+        self.websocket = websocket
+        self.role = role  # "user" | "therapist"
 
 
 class ConnectionManager:
     """
     Manages WebSocket connections for real-time chat.
     Handles connection lifecycle and message broadcasting.
+    Stores role per connection for proper routing.
     """
     
     def __init__(self):
-        # Map of session_id -> list of WebSocket connections
-        self.active_connections: Dict[str, List[WebSocket]] = {}
+        # Map of session_id -> list of ConnectionInfo objects
+        self.active_connections: Dict[str, List[ConnectionInfo]] = {}
     
-    async def connect(self, websocket: WebSocket, session_id: str):
+    async def connect(self, websocket: WebSocket, session_id: str, role: str):
         """
-        Accept and register a new WebSocket connection.
+        Accept and register a new WebSocket connection with role.
         
         Args:
             websocket: WebSocket connection
             session_id: Chat session identifier
+            role: "user" or "therapist"
         """
         await websocket.accept()
         
         if session_id not in self.active_connections:
             self.active_connections[session_id] = []
         
-        self.active_connections[session_id].append(websocket)
-        logger.info(f"WebSocket connected to session {session_id}. Total connections: {len(self.active_connections[session_id])}")
+        conn_info = ConnectionInfo(websocket, role)
+        self.active_connections[session_id].append(conn_info)
+        logger.warning(f"🔌 WebSocket connected to session {session_id} as '{role}'. Total connections: {len(self.active_connections[session_id])}")
     
     def disconnect(self, websocket: WebSocket, session_id: str):
         """
@@ -39,13 +49,33 @@ class ConnectionManager:
             session_id: Chat session identifier
         """
         if session_id in self.active_connections:
-            if websocket in self.active_connections[session_id]:
-                self.active_connections[session_id].remove(websocket)
-                logger.info(f"WebSocket disconnected from session {session_id}")
+            # Find and remove the connection
+            for conn_info in self.active_connections[session_id]:
+                if conn_info.websocket == websocket:
+                    self.active_connections[session_id].remove(conn_info)
+                    logger.info(f"🔌 WebSocket disconnected from session {session_id} (role: {conn_info.role})")
+                    break
             
             # Clean up empty session lists
             if len(self.active_connections[session_id]) == 0:
                 del self.active_connections[session_id]
+    
+    def get_role(self, websocket: WebSocket, session_id: str) -> Optional[str]:
+        """
+        Get the role for a specific websocket connection.
+        
+        Args:
+            websocket: WebSocket connection
+            session_id: Session identifier
+            
+        Returns:
+            Role ("user" or "therapist") or None if not found
+        """
+        if session_id in self.active_connections:
+            for conn_info in self.active_connections[session_id]:
+                if conn_info.websocket == websocket:
+                    return conn_info.role
+        return None
     
     async def send_personal_message(self, message: dict, websocket: WebSocket):
         """
@@ -74,16 +104,16 @@ class ConnectionManager:
         
         # Send to all connections in the session
         disconnected = []
-        for connection in self.active_connections[session_id]:
+        for conn_info in self.active_connections[session_id]:
             try:
-                await connection.send_json(message)
+                await conn_info.websocket.send_json(message)
             except Exception as e:
                 logger.error(f"Error broadcasting to session {session_id}: {e}")
-                disconnected.append(connection)
+                disconnected.append(conn_info.websocket)
         
         # Clean up disconnected connections
-        for connection in disconnected:
-            self.disconnect(connection, session_id)
+        for websocket in disconnected:
+            self.disconnect(websocket, session_id)
     
     async def send_typing_indicator(self, session_id: str, sender_type: str, is_typing: bool):
         """
