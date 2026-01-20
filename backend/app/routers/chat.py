@@ -114,15 +114,17 @@ async def therapist_join_appointment(
     
     # Send system message to notify user
     system_message = {
-        "type": "system",
+        "type": "message",  # Changed from "system" to "message" so frontend displays it
         "sender": "system",
         "content": "🧑‍⚕️ Therapist has joined. You can talk directly now.",
         "session_id": str(appointment.session_id),
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.utcnow().isoformat(),
+        "emotion": None,
+        "confidence": None
     }
     
     await manager.broadcast_to_session(system_message, str(appointment.session_id))
-    logger.info(f"📢 Sent therapist join notification to session {appointment.session_id}")
+    logger.warning(f"📢 Sent therapist join notification to session {appointment.session_id}")
     
     return {
         "status": "ok",
@@ -205,9 +207,15 @@ async def websocket_endpoint(
                 .filter(Appointment.session_id == UUID(session_id))\
                 .first()
             
+            # DEBUG: Log current chat mode
+            if appointment:
+                logger.warning(f"📊 DEBUG - Session {session_id} | CHAT_MODE: {appointment.chat_mode.value}")
+            else:
+                logger.warning(f"⚠️ DEBUG - Session {session_id} | No appointment found (chat_mode will default to BOT_ONLY)")
+            
             # If therapist has joined, ONLY broadcast (no bot replies)
             if appointment and appointment.chat_mode == ChatMode.THERAPIST_JOINED:
-                logger.info(f"🧑‍⚕️ THERAPIST_JOINED mode - Bot will NOT respond")
+                logger.warning(f"🧑‍⚕️ THERAPIST_JOINED mode - Bot will NOT respond")
                 continue  # Skip all AI logic
             
             # Only generate AI response if sender is "user" AND mode is BOT_ONLY

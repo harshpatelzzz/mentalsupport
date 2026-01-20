@@ -41,18 +41,23 @@ export default function ChatPage() {
       if (isTherapist && sessionId) {
         try {
           console.log('🧑‍⚕️ Therapist joining session:', sessionId)
+          console.log('Fetching appointment by session_id...')
           // Note: In real scenario, we'd get appointment_id from URL or API
           // For now, we'll fetch appointment by session_id first
           const appointmentsResponse = await axios.get(
             `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/appointments/session/${sessionId}`
           )
+          console.log('Appointment response:', appointmentsResponse.data)
           if (appointmentsResponse.data) {
             const appointmentId = appointmentsResponse.data.id
-            await chatApi.therapistJoinAppointment(appointmentId)
-            console.log('✅ Therapist joined appointment successfully')
+            console.log('Calling therapistJoinAppointment with ID:', appointmentId)
+            const joinResponse = await chatApi.therapistJoinAppointment(appointmentId)
+            console.log('✅ Therapist joined appointment successfully:', joinResponse)
+          } else {
+            console.error('❌ No appointment found for session:', sessionId)
           }
         } catch (error) {
-          console.error('Failed to join as therapist:', error)
+          console.error('❌ Failed to join as therapist:', error)
         }
       }
     }
@@ -182,27 +187,32 @@ export default function ChatPage() {
     // Allow chat to continue normally
   }
 
-  const getSenderIcon = (senderType: string) => {
-    switch (senderType) {
+  const getSenderIcon = (sender: string) => {
+    switch (sender) {
       case 'visitor':
+      case 'user':
         return <User className="w-5 h-5" />
       case 'therapist':
         return <Stethoscope className="w-5 h-5" />
       case 'ai':
+      case 'system':
         return <Bot className="w-5 h-5" />
       default:
         return <User className="w-5 h-5" />
     }
   }
 
-  const getSenderLabel = (senderType: string) => {
-    switch (senderType) {
+  const getSenderLabel = (sender: string) => {
+    switch (sender) {
       case 'visitor':
-        return visitorName || 'You'
+      case 'user':
+        return isTherapist ? 'User' : 'You'
       case 'therapist':
         return 'Therapist'
       case 'ai':
         return 'AI Support'
+      case 'system':
+        return 'System'
       default:
         return 'Unknown'
     }
@@ -243,26 +253,32 @@ export default function ChatPage() {
             </div>
           )}
 
-          {messages.map((message) => (
+          {messages.map((message) => {
+            // Get sender (handle both "sender" and "sender_type" for compatibility)
+            const sender = message.sender_type || (message as any).sender || 'ai'
+            const isUser = sender === 'visitor' || sender === 'user'
+            const isTherapist = sender === 'therapist'
+            
+            return (
             <div
               key={message.id}
-              className={`flex ${message.sender_type === 'visitor' ? 'justify-end' : 'justify-start'} animate-fade-in`}
+              className={`flex ${isUser ? 'justify-end' : 'justify-start'} animate-fade-in`}
             >
-              <div className={`flex space-x-3 max-w-2xl ${message.sender_type === 'visitor' ? 'flex-row-reverse space-x-reverse' : ''}`}>
+              <div className={`flex space-x-3 max-w-2xl ${isUser ? 'flex-row-reverse space-x-reverse' : ''}`}>
                 {/* Avatar */}
                 <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center ${
-                  message.sender_type === 'visitor' ? 'bg-primary-600 text-white' :
-                  message.sender_type === 'therapist' ? 'bg-secondary-600 text-white' :
+                  isUser ? 'bg-primary-600 text-white' :
+                  isTherapist ? 'bg-green-600 text-white' :
                   'bg-gray-600 text-white'
                 }`}>
-                  {getSenderIcon(message.sender_type)}
+                  {getSenderIcon(sender)}
                 </div>
 
                 {/* Message Content */}
                 <div className="flex-1">
                   <div className="flex items-baseline space-x-2 mb-1">
                     <span className="text-sm font-medium text-gray-900">
-                      {getSenderLabel(message.sender_type)}
+                      {getSenderLabel(sender)}
                     </span>
                     <span className="text-xs text-gray-500">
                       {formatTime(message.created_at)}
@@ -270,8 +286,10 @@ export default function ChatPage() {
                   </div>
 
                   <div className={`message-bubble ${
-                    message.sender_type === 'visitor' 
+                    isUser
                       ? 'bg-primary-600 text-white' 
+                      : isTherapist
+                      ? 'bg-green-600 text-white'
                       : 'bg-white text-gray-900 border border-gray-200'
                   }`}>
                     <p className="whitespace-pre-wrap">{message.content}</p>
@@ -288,7 +306,8 @@ export default function ChatPage() {
                 </div>
               </div>
             </div>
-          ))}
+            )
+          })}
 
           {/* Typing Indicators */}
           {(isAiTyping || isTherapistTyping) && (
